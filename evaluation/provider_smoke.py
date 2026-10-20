@@ -7,12 +7,21 @@ import urllib.error
 import urllib.request
 
 
-def _safe_error_hint(body: bytes) -> str:
-    """Expose only sanitized error categories; never print provider response text."""
+def _safe_error_hint(body: bytes, headers=None) -> str:
+    """Expose sanitized error categories and safe response metadata, never body text."""
     try:
         parsed = json.loads(body)
     except (ValueError, TypeError):
-        return " (no structured error details)"
+        details = ["non_json_error_response"]
+        if headers is not None:
+            content_type = headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            if content_type and len(content_type) <= 80 and all(c.isalnum() or c in "/.+-_" for c in content_type):
+                details.append(f"content_type={content_type}")
+            for header in ("x-request-id", "request-id", "cf-ray"):
+                value = headers.get(header, "")
+                if value and len(value) <= 100 and all(c.isalnum() or c in "-_." for c in value):
+                    details.append(f"{header.replace(chr(45), chr(95))}={value}")
+        return " (" + ", ".join(details) + ")"
 
     # Providers use different envelopes, so inspect a bounded set of nested objects.
     candidates = [parsed]
@@ -69,12 +78,15 @@ def call(
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
     body = b""
+    response_headers = None
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
             code = response.status
             body = response.read()
+            response_headers = response.headers
     except urllib.error.HTTPError as error:
         code, body = error.code, error.read()
+        response_headers = error.headers
     except Exception as error:
         print(f"FAIL {name}: connection error ({type(error).__name__})")
         return False
@@ -88,7 +100,7 @@ def call(
             ok = False
 
     status = "PASS" if ok else "FAIL"
-    hint = "" if ok else _safe_error_hint(body)
+    hint = "" if ok else _safe_error_hint(body, response_headers)
     print(f"{status} {name}: HTTP {code}{hint}")
     return ok
 
