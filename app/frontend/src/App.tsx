@@ -359,10 +359,8 @@ function App() {
   }
   function exitDemoMode() {
     setDemoMode(false);
-    try {
-      const stored = window.localStorage.getItem("dialog-ai-call-history");
-      setHistory(stored ? JSON.parse(stored) as CallRecord[] : []);
-    } catch { setHistory([]); }
+    setHistory([]);
+    setHistoryError("");
     setPage("workspace");
     notify("Returned to your workspace");
   }
