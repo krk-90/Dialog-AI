@@ -77,6 +77,23 @@ def _safe_error_hint(body: bytes, headers=None, status_code: int | None = None) 
     details = [f"diagnosis={category}", f"body_bytes={len(body)}"]
     if status_code is not None:
         details.append(f"http_status={status_code}")
+    # Emit only allowlisted boolean signals, never the provider's raw error text.
+    signals = []
+    signal_terms = {
+        "api_key": ("api key", "apikey", "api_key"),
+        "invalid": ("invalid", "rejected", "malformed"),
+        "missing": ("missing", "not provided", "not found"),
+        "project": ("project", "ref mismatch"),
+        "publishable": ("publishable", "sb_publishable"),
+        "jwt": ("jwt", "token", "signature"),
+        "authorization": ("authorization", "unauthorized", "bearer"),
+        "permission": ("permission", "forbidden", "not allowed"),
+    }
+    for signal, terms in signal_terms.items():
+        if any(term in combined for term in terms):
+            signals.append(signal)
+    if signals:
+        details.append("error_signals=" + ",".join(signals))
     if isinstance(parsed, dict):
         safe_keys = [
             key for key in parsed.keys()
