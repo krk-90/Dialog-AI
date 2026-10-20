@@ -8,20 +8,53 @@ import urllib.request
 
 
 def _safe_error_hint(body: bytes) -> str:
-    """Return only allow-listed error metadata, never raw provider response text."""
+    """Expose only sanitized error categories; never print provider response text."""
     try:
         parsed = json.loads(body)
     except (ValueError, TypeError):
-        return ""
-    error = parsed.get("error", parsed)
-    if not isinstance(error, dict):
-        return ""
-    parts = []
-    for field in ("code", "type"):
-        value = error.get(field)
-        if isinstance(value, str) and value and len(value) <= 100:
-            parts.append(f"{field}={value}")
-    return f" ({', '.join(parts)})" if parts else ""
+        return " (no structured error details)"
+
+    # Providers use different envelopes, so inspect a bounded set of nested objects.
+    candidates = [parsed]
+    for key in ("error", "errors", "message"):
+        value = parsed.get(key) if isinstance(parsed, dict) else None
+        if isinstance(value, dict):
+            candidates.append(value)
+        elif isinstance(value, list):
+            candidates.extend(item for item in value[:3] if isinstance(item, dict))
+
+    metadata = []
+    messages = []
+    for item in candidates:
+        for field in ("code", "type"):
+            value = item.get(field)
+            if isinstance(value, str) and value and len(value) <= 80:
+                # Only allow simple identifier characters; avoid echoing arbitrary text.
+                if all(char.isalnum() or char in "._-" for char in value):
+                    metadata.append(f"{field}={value}")
+        value = item.get("message")
+        if isinstance(value, str):
+            messages.append(value.lower()[:500])
+
+    combined = " ".join(messages)
+    if any(term in combined for term in ("invalid api key", "invalid_api_key", "api key is invalid", "authentication failed")):
+        category = "invalid_or_rejected_api_key"
+    elif any(term in combined for term in ("model not found", "model is not available", "model access", "not authorized to use model", "permission to access model")):
+        category = "model_unavailable_or_not_permitted"
+    elif any(term in combined for term in ("jwt", "invalid token", "signature verification", "token has expired")):
+        category = "invalid_or_expired_token"
+    elif any(term in combined for term in ("project ref", "project not found", "does not match project", "different project")):
+        category = "project_url_key_mismatch"
+    elif any(term in combined for term in ("forbidden", "not allowed", "permission denied")):
+        category = "request_forbidden_check_key_and_permissions"
+    elif any(term in combined for term in ("unauthorized", "missing api key", "missing authorization")):
+        category = "authorization_missing_or_rejected"
+    else:
+        category = "unclassified_provider_error"
+
+    details = [f"diagnosis={category}"]
+    details.extend(dict.fromkeys(metadata))
+    return " (" + ", ".join(details) + ")"
 
 
 def call(
@@ -50,7 +83,7 @@ def call(
     if ok and validate_json_field:
         try:
             parsed = json.loads(body)
-            ok = bool(parsed.get(validate_json_field))
+            ok = isinstance(parsed, dict) and bool(parsed.get(validate_json_field))
         except (ValueError, AttributeError):
             ok = False
 
@@ -61,10 +94,10 @@ def call(
 
 
 def main() -> int:
-    groq = os.getenv("GROQ_API_KEY", "")
-    deepgram = os.getenv("DEEPGRAM_API_KEY", "")
-    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
-    supabase_key = os.getenv("SUPABASE_ANON_KEY", "")
+    groq = os.getenv("GROQ_API_KEY", "").strip()
+    deepgram = os.getenv("DEEPGRAM_API_KEY", "").strip()
+    supabase_url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    supabase_key = os.getenv("SUPABASE_ANON_KEY", "").strip()
     missing = [
         name for name, value in [
             ("GROQ_API_KEY", groq),
@@ -76,6 +109,11 @@ def main() -> int:
     if missing:
         print("FAIL provider smoke: missing GitHub Actions secret(s): " + ", ".join(missing))
         return 1
+
+    # Print formats only, never key values. This catches accidentally storing a
+    # dashboard URL, service-role key in the wrong field, or malformed URL.
+    print(f"Config check: GROQ_API_KEY present ({len(groq)} chars); model={os.getenv('GROQ_MODEL', '').strip() or 'llama-3.3-70b-versatile'}")
+    print(f"Config check: SUPABASE_URL format={'https' if supabase_url.startswith('https://') else 'unexpected'}; SUPABASE_ANON_KEY format={'publishable' if supabase_key.startswith('sb_publishable_') else 'JWT-like' if supabase_key.startswith('eyJ') else 'unknown'}")
 
     model = os.getenv("GROQ_MODEL", "").strip() or "llama-3.3-70b-versatile"
     results = [
@@ -92,8 +130,6 @@ def main() -> int:
             },
             validate_json_field="choices",
         ),
-        # [provider-smoke] Listing projects validates auth without creating a key
-        # or requiring key-management permissions and project IDs.
         call(
             "Deepgram API key",
             "https://api.deepgram.com/v1/projects",
