@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from evaluation.provider_smoke import _safe_error_hint, _supabase_key_hint
 
 
@@ -21,7 +23,7 @@ def test_supabase_401_without_json_message_is_classified_and_sanitized() -> None
 def test_invalid_api_key_error_is_classified_without_echoing_body() -> None:
     secret_text = "Invalid API key: never echo this provider response"
     hint = _safe_error_hint(
-        ('{"message":' + __import__("json").dumps(secret_text) + "}").encode(),
+        ('{"message":' + json.dumps(secret_text) + "}").encode(),
         {"Content-Type": "application/json"},
         401,
     )
@@ -50,3 +52,12 @@ def test_publishable_key_hint_never_decodes_or_echoes_key() -> None:
 
     assert hint == "key_format=not_legacy_jwt"
     assert key not in hint
+
+
+def test_auth_error_emits_only_allowlisted_error_signals() -> None:
+    body = b'{"message":"A publishable key was not accepted for this project"}'
+    hint = _safe_error_hint(body, {"Content-Type": "application/json"}, 401)
+
+    assert "diagnosis=http_401_authentication_rejected" in hint
+    assert "error_signals=project,publishable" in hint
+    assert "was not accepted" not in hint
