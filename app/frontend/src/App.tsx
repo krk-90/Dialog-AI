@@ -97,11 +97,12 @@ function App() {
   const [coachLoading, setCoachLoading] = useState(false);
   const [suggestion, setSuggestion] = useState("They've offered a one-minute window. Give a concise reason for calling, then ask one focused question.");
   const [history, setHistory] = useState<CallRecord[]>(() => {
+    if (AUTH_CONFIGURED && !demoMode) return [];
     try {
       const stored = window.localStorage.getItem(demoMode ? "dialog-ai-demo-history" : "dialog-ai-call-history");
       return stored ? JSON.parse(stored) as CallRecord[] : (demoMode ? seedHistory : []);
     } catch {
-      return seedHistory;
+      return demoMode ? seedHistory : [];
     }
   });
   const [showEnd, setShowEnd] = useState(false);
@@ -138,6 +139,8 @@ function App() {
   }, [transcript]);
 
   useEffect(() => {
+    // Authenticated call data belongs in Supabase, not shared browser storage.
+    if (AUTH_CONFIGURED && !demoMode) return;
     try {
       window.localStorage.setItem(demoMode ? "dialog-ai-demo-history" : "dialog-ai-call-history", JSON.stringify(history));
     } catch {
@@ -148,6 +151,7 @@ function App() {
   useEffect(() => {
     if (demoMode) return;
     if (AUTH_CONFIGURED && !authSession?.access_token) return;
+    if (AUTH_CONFIGURED) setHistory([]);
     let cancelled = false;
     const headers: HeadersInit = authSession?.access_token
       ? { Authorization: "Bearer " + authSession.access_token }
