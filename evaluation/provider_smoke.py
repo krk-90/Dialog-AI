@@ -76,7 +76,9 @@ def call(
     validate_json_field: str | None = None,
 ) -> bool:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    request_headers = {"User-Agent": "Dialog-AI-provider-smoke/1.0", "Accept": "application/json"}
+    request_headers.update(headers or {})
+    request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
     body = b""
     response_headers = None
     try:
@@ -143,7 +145,9 @@ def main() -> int:
         call(
             "Supabase REST API",
             supabase_url + "/rest/v1/",
-            headers={"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"},
+            # The anon/publishable key belongs in apikey. Authorization is for a
+            # user access token and should not be populated with a project API key.
+            headers={"apikey": supabase_key},
         ),
     ]
     print(f"Provider smoke summary: {sum(results)}/{len(results)} providers passed.")
