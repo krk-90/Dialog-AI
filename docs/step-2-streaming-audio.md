@@ -24,8 +24,8 @@ Set `VITE_API_BASE_URL=http://localhost:8000` in `app/frontend/.env.local` for l
 
 ## Limitations
 
-- This captures the selected computer microphone only. It does not automatically capture a desktop calling application's remote audio.
-- Diarization labels distinct voices but does not reliably identify which one is the salesperson. Treat voice labels as provisional until the user assigns roles.
+- Audio source selector supports microphone, browser/system audio, or both. Desktop/system capture uses the browser display-sharing prompt; the user must explicitly select a tab/window/screen and enable audio sharing where supported. The browser may provide no audio track, and capture behavior varies by OS/browser. Video is not recorded or sent to the speech provider.
+- Mixed audio combines microphone and shared system audio into one stream. Diarization labels distinct voices but does not reliably identify which one is the salesperson. Treat voice labels as provisional until the user assigns roles.
 - Transcripts are not persisted to Supabase in this milestone.
 - Use recording/transcription only with appropriate consent and in compliance with applicable laws.
 
