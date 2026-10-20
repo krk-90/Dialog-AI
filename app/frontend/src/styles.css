@@ -48,3 +48,11 @@
 .app-shell[data-theme="light"] .stage-number{border-color:#d4ded3;color:#68766a}
 .app-shell[data-theme="light"] .workspace-switch b,.app-shell[data-theme="light"] .profile b{color:#273328}
 .app-shell[data-theme="light"] .workspace-switch small,.app-shell[data-theme="light"] .profile small{color:#69776b}
+
+
+/* Step 2: audio source selection */
+.audio-source-control{display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:0 10px;border:1px solid var(--line);border-radius:9px;color:var(--muted);background:var(--panel)}
+.audio-source-control select{max-width:142px;border:0;outline:none;background:transparent;color:var(--text);font:inherit;font-size:12px;cursor:pointer}
+.audio-source-control select:disabled{cursor:not-allowed;opacity:.7}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:700px){.audio-source-control select{max-width:110px}.overview-controls{flex-wrap:wrap}}
