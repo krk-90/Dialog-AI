@@ -289,7 +289,9 @@ function App() {
         notify(AUTH_CONFIGURED ? "Call saved to your cloud history" : "Call saved to backend history");
       } catch {
         setHistory((items) => [localCall, ...items]);
-        notify("Backend unavailable. Saved this call in browser history instead.");
+        notify(AUTH_CONFIGURED
+          ? "Cloud save failed. This call is only in the current session and was not synced."
+          : "Backend unavailable. Saved this call in browser history instead.");
       }
     }
     callStartedAtRef.current = null;
