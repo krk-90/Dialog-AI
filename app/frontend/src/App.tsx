@@ -141,42 +141,59 @@ function App() {
   }, [transcript]);
 
   useEffect(() => {
-    // Authenticated call data belongs in Supabase, not shared browser storage.
-    if (AUTH_CONFIGURED && !demoMode) return;
+    // Only demo data is browser-persisted. Real call history always comes from the API.
+    if (!demoMode) return;
     try {
-      window.localStorage.setItem(demoMode ? "dialog-ai-demo-history" : "dialog-ai-call-history", JSON.stringify(history));
+      window.localStorage.setItem("dialog-ai-demo-history", JSON.stringify(history));
     } catch {
-      /* Call history remains available in memory for this session. */
+      /* Demo history remains available in memory for this session. */
     }
   }, [history, demoMode]);
 
   useEffect(() => {
     if (demoMode) return;
-    if (AUTH_CONFIGURED && !authSession?.access_token) return;
-    if (AUTH_CONFIGURED) setHistory([]);
+    if (AUTH_CONFIGURED && !authSession?.access_token) {
+      setHistory([]);
+      setHistoryError("");
+      setHistoryLoading(false);
+      return;
+    }
     let cancelled = false;
+    setHistory([]);
+    setHistoryError("");
+    setHistoryLoading(true);
     const headers: HeadersInit = authSession?.access_token
       ? { Authorization: "Bearer " + authSession.access_token }
       : {};
     fetch(API_BASE_URL + "/api/calls", { headers })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Call history could not be loaded");
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(typeof body.detail === "string" ? body.detail : "Call history could not be loaded");
+        }
         return response.json();
       })
       .then((rows: Array<{ id: string; prospect: string; company: string; outcome: string; stage: number; duration: string; transcript?: Array<{ speaker: string; text: string; time?: string }>; created_at: string }>) => {
-        if (cancelled || !Array.isArray(rows)) return;
+        if (cancelled) return;
+        if (!Array.isArray(rows)) throw new Error("The call history API returned an invalid response");
         setHistory(rows.map((row) => ({
           id: row.id,
           prospect: row.prospect,
           company: row.company,
-          date: row.created_at ? new Date(row.created_at).toLocaleString() : "Saved call",
+          date: row.created_at ? new Date(row.created_at).toLocaleString() : "Date unavailable",
           outcome: row.outcome,
           stage: row.stage,
           duration: row.duration,
           transcript: row.transcript ?? [],
         })));
       })
-      .catch(() => { if (!cancelled) setToast("Backend history unavailable; showing saved browser history."); });
+      .catch((error) => {
+        if (cancelled) return;
+        setHistory([]);
+        setHistoryError(error instanceof Error ? error.message : "Call history could not be loaded");
+        setToast("Could not load real call history. Check the backend connection.");
+      })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
     return () => { cancelled = true; };
   }, [authSession, demoMode]);
 
