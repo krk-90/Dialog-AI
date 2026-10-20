@@ -1,24 +1,38 @@
-# Step 2: Streaming audio milestone
+# Step 2: Streaming audio foundation
 
 ## Scope
-This milestone adds the first streaming transcription slice, not full call recording or full-duplex system audio capture.
 
-- Browser microphone audio is streamed in small MediaRecorder chunks to Deepgram Nova-2.
-- Interim and final transcript results are exposed by a reusable React hook.
-- Deepgram diarization is enabled. Speaker IDs are only voice clusters; speaker 0 is provisionally displayed as "You" and speaker 1 as "Prospect". This assignment is a heuristic and must be configurable/confirmed in a real call.
-- The browser never receives the long-lived Deepgram API key. The backend endpoint must issue a short-lived token.
-- If permissions, credentials, networking, browser support, or the provider fail, the hook returns an actionable error and manual transcript entry remains available.
-- Desktop system/call audio is not included in this first slice. Browser getUserMedia only captures the selected microphone. System audio requires a separate user-initiated screen/tab audio capture path and browser/OS support.
+This milestone provides a FastAPI application, health endpoint, backend-issued temporary Deepgram credentials, and a browser hook for streaming microphone audio. It intentionally does not implement AI coaching or call-stage detection.
 
-## Integration
-1. Install `httpx` in the backend environment if not already installed.
-2. Save `app/routes/transcription.py` and include `router` in the existing FastAPI application with prefix `/api/transcription`. The route then becomes `POST /api/transcription/deepgram-token`.
-3. Set `DEEPGRAM_API_KEY` in the backend host's secret environment settings. Never add it to Vite variables or commit a real key.
-4. Import `useDeepgramTranscription` from `src/hooks/useDeepgramTranscription`. Render `segments` and append only final segments to persisted transcript history. Interim segments should be replaced as new interim results arrive.
-5. For production, add authenticated-user/session checks and rate limits to the token endpoint before exposing it publicly.
+## Run locally
+
+```bash
+python -m venv .venv
+# Windows: .venv\\Scripts\\activate
+# macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+Check `http://localhost:8000/health`. Without `DEEPGRAM_API_KEY`, the token endpoint returns a safe 503 response and manual transcript entry remains available.
+
+Set `DEEPGRAM_API_KEY` in your local environment or Render environment settings. Do not commit a real key. The frontend requests `POST /api/transcription/deepgram-token`; the permanent provider key never goes to the browser.
+
+## Frontend
+
+Set `VITE_API_BASE_URL=http://localhost:8000` in `app/frontend/.env.local` for local development. Vite proxies the token endpoint to FastAPI. For a deployed frontend, set `VITE_API_BASE_URL` to the backend origin and rebuild the frontend.
 
 ## Limitations
-- This endpoint currently creates a short-lived key through Deepgram's API. Verify the exact key-creation API permissions and payload against the Deepgram project/account before deployment.
-- The diarization labels are provisional, not identity verification.
-- A browser cannot reliably capture arbitrary system audio. Implement display-media audio as a separately consented source after the microphone path is verified.
-- No live credentials were supplied, so end-to-end provider verification is pending.
+
+- This captures the selected computer microphone only. It does not automatically capture a desktop calling application's remote audio.
+- Diarization labels distinct voices but does not reliably identify which one is the salesperson. Treat voice labels as provisional until the user assigns roles.
+- Transcripts are not persisted to Supabase in this milestone.
+- Use recording/transcription only with appropriate consent and in compliance with applicable laws.
+
+## Offline tests
+
+```bash
+pytest -q
+```
+
+Tests verify the health endpoint, TTL validation, and safe manual-mode response when no provider key is configured. Real transcription requires a valid Deepgram credential and browser microphone permission.
