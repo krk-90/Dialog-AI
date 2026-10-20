@@ -4,13 +4,14 @@ export type LiveTranscriptSegment = {
   id: string;
   text: string;
   isFinal: boolean;
-  speaker: "You" | "Prospect" | "Unknown";
+  speaker: "Voice 1" | "Voice 2" | "Unknown";
   receivedAt: number;
 };
 type Status = "idle" | "connecting" | "listening" | "error";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 type Options = { tokenEndpoint?: string; onSegment?: (segment: LiveTranscriptSegment) => void };
 
-export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/deepgram-token", onSegment }: Options = {}) {
+export function useDeepgramTranscription({ tokenEndpoint = `${API_BASE_URL}/api/transcription/deepgram-token`, onSegment }: Options = {}) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [segments, setSegments] = useState<LiveTranscriptSegment[]>([]);
@@ -57,7 +58,11 @@ export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/d
         socket.onerror = () => { window.clearTimeout(timeout); reject(new Error("Could not connect to the speech service. Check your connection or use manual mode.")); };
         socket.onclose = (event) => {
           window.clearTimeout(timeout);
-          if (activeRef.current && event.code !== 1000) setError("Speech connection closed. Manual transcript entry is still available.");
+          if (socket.readyState !== WebSocket.OPEN && !activeRef.current) {
+            reject(new Error("Speech connection closed before transcription started. Manual entry remains available."));
+          } else if (activeRef.current && event.code !== 1000) {
+            setError("Speech connection closed. Manual transcript entry is still available.");
+          }
         };
       });
       if (!stream.active || socket.readyState !== WebSocket.OPEN) throw new Error("Audio session ended before transcription could start.");
@@ -71,7 +76,7 @@ export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/d
           if (!text) return;
           const speakerIndex = alternative?.words?.[0]?.speaker;
           // Diarization identifies distinct voices, not their real-world identity.
-          const speaker: LiveTranscriptSegment["speaker"] = Number.isInteger(speakerIndex) ? (speakerIndex === 0 ? "You" : "Prospect") : "Unknown";
+          const speaker: LiveTranscriptSegment["speaker"] = Number.isInteger(speakerIndex) ? (speakerIndex === 0 ? "Voice 1" : "Voice 2") : "Unknown";
           const segment: LiveTranscriptSegment = { id: crypto.randomUUID(), text, isFinal: Boolean(payload.is_final), speaker, receivedAt: Date.now() };
           setSegments((previous) => {
             const next = segment.isFinal ? [...previous, segment] : [...previous.filter((item) => item.isFinal), segment];
