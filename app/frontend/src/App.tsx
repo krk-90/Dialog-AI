@@ -4,7 +4,7 @@ import {
   Bell, BookOpen, BrainCircuit, Check, ChevronDown, CircleHelp, Clock3, Command,
   Headphones, History, LayoutDashboard, Mic, MicOff, MoreHorizontal, Phone,
   PhoneOff, Plus, Search, Settings2, ShieldCheck, Sparkles, Square, Target,
-  TrendingUp, Volume2, Waves, X, Zap,
+  TrendingUp, Volume2, Waves, X, Zap, Sun, Moon,
 } from "lucide-react";
 
 type Stage = { name: string; purpose: string; prompt: string; tip: string };
@@ -33,6 +33,10 @@ const seedHistory: CallRecord[] = [
 ];
 
 function App() {
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    try { return window.localStorage.getItem("dialog-ai-theme") === "light" ? "light" : "dark"; }
+    catch { return "dark"; }
+  });
   const [page, setPage] = useState<"workspace" | "history">("workspace");
   const [stageIndex, setStageIndex] = useState(0);
   const [prospect, setProspect] = useState("Jordan Lee");
@@ -53,6 +57,11 @@ function App() {
   const transcriptRef = useRef<HTMLDivElement>(null);
   const stage = stages[stageIndex];
   const progress = Math.round(((stageIndex + 1) / stages.length) * 100);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { window.localStorage.setItem("dialog-ai-theme", theme); } catch { /* Storage may be disabled; theme still works for this session. */ }
+  }, [theme]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
@@ -109,7 +118,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={theme}>
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark"><AudioLines size={21} /></div><div><strong>dialog<span>ai</span></strong><small>CALL INTELLIGENCE</small></div></div>
         <button className="workspace-switch"><div className="workspace-avatar">S</div><span><b>Sales workspace</b><small>Growth team</small></span><ChevronDown size={15} /></button>
@@ -121,7 +130,7 @@ function App() {
       </aside>
 
       <main className="main-area">
-        <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="slash">/</span><b>{page === "workspace" ? "Live call" : "Call history"}</b></div><div className="top-actions"><div className="system-status"><span className="status-dot" />All systems operational</div><button className="icon-button" aria-label="Notifications" onClick={() => notify("You're all caught up")}><Bell size={17} /></button><div className="top-avatar">AM</div></div></header>
+        <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="slash">/</span><b>{page === "workspace" ? "Live call" : "Call history"}</b></div><div className="top-actions"><div className="system-status"><span className="status-dot" />Demo mode · Offline-safe</div><button className="icon-button" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button><button className="icon-button" aria-label="Notifications" onClick={() => notify("You're all caught up")}><Bell size={17} /></button><div className="top-avatar">AM</div></div></header>
 
         {page === "workspace" ? (
           <div className="page-content">
