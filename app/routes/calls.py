@@ -29,6 +29,10 @@ def _supabase_configured() -> bool:
     return bool(os.getenv("SUPABASE_URL", "").strip() and os.getenv("SUPABASE_ANON_KEY", "").strip())
 
 
+def _local_history_enabled() -> bool:
+    return os.getenv("DIALOG_AI_LOCAL_HISTORY", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _configuration() -> tuple[str, str]:
     base_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     anon_key = os.getenv("SUPABASE_ANON_KEY", "")
@@ -122,6 +126,8 @@ async def list_calls(authorization: str | None = Header(default=None)) -> Any:
             "calls?select=id,prospect,company,outcome,stage,duration,transcript,created_at&order=created_at.desc&limit=100",
             token,
         )
+    if not _local_history_enabled():
+        raise HTTPException(status_code=503, detail="Call history is disabled until Supabase cloud history is configured.")
     return _local_rows()
 
 
@@ -131,6 +137,9 @@ async def create_call(payload: CallCreate, authorization: str | None = Header(de
         token = _bearer(authorization)
         result = await _supabase_request("POST", "calls", token, payload.model_dump())
         return result
+
+    if not _local_history_enabled():
+        raise HTTPException(status_code=503, detail="Call history is disabled until Supabase cloud history is configured.")
 
     call_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
