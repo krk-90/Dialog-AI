@@ -96,3 +96,33 @@
 .auth-toggle { border: 0; background: transparent; color: var(--muted, #a3a5b1); padding: 8px; cursor: pointer; font: inherit; }
 .auth-error { color: #ff8d95; font-size: 13px; margin: 0; }
 .auth-notice { color: #91d7b4; font-size: 13px; margin: 0; }
+
+/* Demo workspace and saved-call details */
+.demo-entry {
+  margin-top: 8px;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.28));
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+}
+.call-detail-modal {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(82vh, 760px);
+  overflow-y: auto;
+}
+.saved-transcript {
+  margin-top: 18px;
+  border-top: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+  padding-top: 14px;
+}
+.saved-transcript h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.saved-transcript-line {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border, rgba(148, 163, 184, 0.14));
+}
+.saved-transcript-line b { font-size: 12px; }
+.saved-transcript-line span { float: right; font-size: 11px; opacity: .65; }
+.saved-transcript-line p { margin: 5px 0 0; line-height: 1.5; }
