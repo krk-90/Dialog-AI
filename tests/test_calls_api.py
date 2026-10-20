@@ -8,6 +8,7 @@ client = TestClient(app)
 def test_local_history_starts_empty_and_does_not_require_login(monkeypatch, tmp_path):
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
+    monkeypatch.setenv("DIALOG_AI_LOCAL_HISTORY", "true")
     monkeypatch.setenv("DIALOG_AI_DB_PATH", str(tmp_path / "calls.sqlite3"))
 
     response = client.get("/api/calls")
@@ -19,6 +20,7 @@ def test_local_history_starts_empty_and_does_not_require_login(monkeypatch, tmp_
 def test_local_call_is_persisted_with_transcript(monkeypatch, tmp_path):
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
+    monkeypatch.setenv("DIALOG_AI_LOCAL_HISTORY", "true")
     monkeypatch.setenv("DIALOG_AI_DB_PATH", str(tmp_path / "calls.sqlite3"))
     payload = {
         "prospect": "Jordan Lee",
@@ -51,6 +53,7 @@ def test_cloud_history_requires_sign_in_when_supabase_is_configured(monkeypatch)
 def test_local_history_does_not_require_supabase_configuration(monkeypatch, tmp_path):
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_ANON_KEY", raising=False)
+    monkeypatch.setenv("DIALOG_AI_LOCAL_HISTORY", "true")
     monkeypatch.setenv("DIALOG_AI_DB_PATH", str(tmp_path / "calls.sqlite3"))
     response = client.get("/api/calls")
     assert response.status_code == 200
