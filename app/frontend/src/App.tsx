@@ -12,6 +12,10 @@ type Stage = { name: string; purpose: string; prompt: string; tip: string };
 type TranscriptLine = { id: number; speaker: "You" | "Prospect" | "Voice 1" | "Voice 2" | "Unknown"; text: string; time: string };
 type CallRecord = { id: string; prospect: string; company: string; date: string; outcome: string; stage: number; duration: string };
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/$/, "");
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+const AUTH_CONFIGURED = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+type AuthSession = { access_token: string; refresh_token?: string; user?: { email?: string } };
 
 const stages: Stage[] = [
   { name: "Opening", purpose: "Earn a few seconds of attention", prompt: "Hi, this is Alex from Dialog. Have I caught you at an okay time for a quick question?", tip: "Be warm, direct, and brief. Avoid launching into a pitch." },
@@ -35,6 +39,18 @@ const seedHistory: CallRecord[] = [
 ];
 
 function App() {
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => {
+    try {
+      const raw = window.localStorage.getItem("dialog-ai-session");
+      return raw ? JSON.parse(raw) as AuthSession : null;
+    } catch { return null; }
+  });
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try { return window.localStorage.getItem("dialog-ai-theme") === "light" ? "light" : "dark"; }
     catch { return "dark"; }
@@ -102,6 +118,30 @@ function App() {
   }, [history]);
 
   useEffect(() => {
+    if (!AUTH_CONFIGURED || !authSession?.access_token) return;
+    let cancelled = false;
+    fetch(API_BASE_URL + "/api/calls", { headers: { Authorization: "Bearer " + authSession.access_token } })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Cloud history could not be loaded");
+        return response.json();
+      })
+      .then((rows: Array<{ id: string; prospect: string; company: string; outcome: string; stage: number; duration: string; created_at: string }>) => {
+        if (cancelled || !Array.isArray(rows)) return;
+        setHistory(rows.map((row) => ({
+          id: row.id,
+          prospect: row.prospect,
+          company: row.company,
+          date: row.created_at ? new Date(row.created_at).toLocaleString() : "Saved call",
+          outcome: row.outcome,
+          stage: row.stage,
+          duration: row.duration,
+        })));
+      })
+      .catch(() => { if (!cancelled) setToast("Cloud history unavailable; showing local history."); });
+    return () => { cancelled = true; };
+  }, [authSession]);
+
+  useEffect(() => {
     setListening(transcription.status === "listening");
     setMicOn(transcription.status === "listening");
     if (transcription.error) setToast(transcription.error);
@@ -166,21 +206,94 @@ function App() {
     setNotes("");
     void line;
   }
-  function finishCall() {
+  async function finishCall() {
     transcription.stop();
-    setHistory((items) => [{
+    const newCall: CallRecord = {
       id: `DL-${Math.floor(2050 + Math.random() * 900)}`, prospect, company,
       date: "Just now", outcome, stage: stageIndex + 1, duration: "Live",
-    }, ...items]);
+    };
+    setHistory((items) => [newCall, ...items]);
+    if (AUTH_CONFIGURED && authSession?.access_token) {
+      try {
+        const response = await fetch(API_BASE_URL + "/api/calls", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + authSession.access_token },
+          body: JSON.stringify({
+            prospect, company, outcome, stage: stageIndex + 1, duration: "Live",
+            transcript: transcript.map(({ id, ...line }) => line),
+          }),
+        });
+        if (!response.ok) throw new Error("Cloud save failed");
+        notify("Call closed and synced to your cloud history");
+      } catch {
+        notify("Call saved locally; cloud sync failed");
+      }
+    } else {
+      notify("Call closed and saved to local call history");
+    }
     setShowEnd(false); setCallActive(false); setListening(false); setMicOn(false);
-    notify("Call closed and saved to local call history");
     setPage("history");
+  }
+
+  async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAuthBusy(true); setAuthError(""); setAuthNotice("");
+    try {
+      const path = authMode === "sign-up" ? "/auth/v1/signup" : "/auth/v1/token?grant_type=password";
+      const response = await fetch(SUPABASE_URL + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+        body: JSON.stringify({ email: authEmail.trim(), password: authPassword }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.msg || body.message || "Authentication failed.");
+      if (!body.access_token) {
+        setAuthNotice("Check your email to confirm your account, then sign in.");
+        return;
+      }
+      window.localStorage.setItem("dialog-ai-session", JSON.stringify(body));
+      setAuthSession(body as AuthSession);
+      setAuthPassword("");
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Authentication failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  function signOut() {
+    try { window.localStorage.removeItem("dialog-ai-session"); } catch { /* Continue with in-memory sign-out. */ }
+    setAuthSession(null);
+    notify("Signed out");
   }
   function startNewCall() {
     transcription.stop();
     setStageIndex(0); setCallActive(true); setListening(false); setMicOn(false);
     setTranscript([]); setInterimTranscript(null); setNotes(""); setResponseType("Asked for context"); setSuggestion("Start with a concise opening. AI suggestions will appear here when the backend is connected.");
     setPage("workspace"); notify("New demo call ready");
+  }
+
+  if (AUTH_CONFIGURED && !authSession?.access_token) {
+    return (
+      <div className="auth-screen" data-theme={theme}>
+        <form className="auth-card" onSubmit={submitAuth}>
+          <div className="brand-mark"><AudioLines size={21} /></div>
+          <p className="eyebrow">DIALOG AI · CALL INTELLIGENCE</p>
+          <h1>{authMode === "sign-in" ? "Welcome back" : "Create your workspace"}</h1>
+          <p className="auth-description">Sign in to securely sync your call history across sessions.</p>
+          <label htmlFor="auth-email">Email</label>
+          <input id="auth-email" type="email" autoComplete="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} required />
+          <label htmlFor="auth-password">Password</label>
+          <input id="auth-password" type="password" autoComplete={authMode === "sign-in" ? "current-password" : "new-password"} minLength={8} value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required />
+          {authError && <p className="auth-error" role="alert">{authError}</p>}
+          {authNotice && <p className="auth-notice" role="status">{authNotice}</p>}
+          <button className="button button-primary auth-submit" type="submit" disabled={authBusy}>{authBusy ? "Please wait…" : authMode === "sign-in" ? "Sign in" : "Create account"}</button>
+          <button className="auth-toggle" type="button" onClick={() => { setAuthMode((mode) => mode === "sign-in" ? "sign-up" : "sign-in"); setAuthError(""); setAuthNotice(""); }}>
+            {authMode === "sign-in" ? "New here? Create an account" : "Already registered? Sign in"}
+          </button>
+        </form>
+      </div>
+    );
   }
 
   return (
@@ -192,7 +305,7 @@ function App() {
         <button className={`nav-item ${page === "workspace" ? "active" : ""}`} onClick={() => setPage("workspace")}><LayoutDashboard size={17} />Live call <span className="nav-live"><i />LIVE</span></button>
         <button className={`nav-item ${page === "history" ? "active" : ""}`} onClick={() => setPage("history")}><History size={17} />Call history</button>
         <button className="nav-item" onClick={() => notify("Analytics will be available when call data is connected")}><BarChart3 size={17} />Analytics <span className="soon">SOON</span></button>
-        <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-icon"><Sparkles size={17} /></div><b>Make every call count.</b><p>Keep conversations human. Let the details stay organized.</p><button onClick={() => notify("You're using the Dialog AI demo workspace")}>Explore workspace <ArrowRight size={14} /></button></div><button className="profile"><div className="profile-avatar">AL</div><span><b>Alex Morgan</b><small>Sales representative</small></span><MoreHorizontal size={18} /></button></div>
+        <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-icon"><Sparkles size={17} /></div><b>Make every call count.</b><p>Keep conversations human. Let the details stay organized.</p><button onClick={() => notify("You're using the Dialog AI demo workspace")}>Explore workspace <ArrowRight size={14} /></button></div><button className="profile" onClick={AUTH_CONFIGURED ? signOut : undefined} title={AUTH_CONFIGURED ? "Sign out" : "Demo profile"}><div className="profile-avatar">AL</div><span><b>{authSession?.user?.email || "Alex Morgan"}</b><small>{AUTH_CONFIGURED ? "Sign out" : "Sales representative"}</small></span><MoreHorizontal size={18} /></button></div>
       </aside>
 
       <main className="main-area">
