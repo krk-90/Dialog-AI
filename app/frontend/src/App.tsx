@@ -97,14 +97,16 @@ function App() {
   const [coachLoading, setCoachLoading] = useState(false);
   const [suggestion, setSuggestion] = useState("They've offered a one-minute window. Give a concise reason for calling, then ask one focused question.");
   const [history, setHistory] = useState<CallRecord[]>(() => {
-    if (AUTH_CONFIGURED && !demoMode) return [];
+    if (!demoMode) return [];
     try {
-      const stored = window.localStorage.getItem(demoMode ? "dialog-ai-demo-history" : "dialog-ai-call-history");
-      return stored ? JSON.parse(stored) as CallRecord[] : (demoMode ? seedHistory : []);
+      const stored = window.localStorage.getItem("dialog-ai-demo-history");
+      return stored ? JSON.parse(stored) as CallRecord[] : seedHistory;
     } catch {
-      return demoMode ? seedHistory : [];
+      return seedHistory;
     }
   });
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
   const [showEnd, setShowEnd] = useState(false);
   const [outcome, setOutcome] = useState("Meeting booked");
   const [toast, setToast] = useState("");
@@ -139,42 +141,59 @@ function App() {
   }, [transcript]);
 
   useEffect(() => {
-    // Authenticated call data belongs in Supabase, not shared browser storage.
-    if (AUTH_CONFIGURED && !demoMode) return;
+    // Only demo data is browser-persisted. Real call history always comes from the API.
+    if (!demoMode) return;
     try {
-      window.localStorage.setItem(demoMode ? "dialog-ai-demo-history" : "dialog-ai-call-history", JSON.stringify(history));
+      window.localStorage.setItem("dialog-ai-demo-history", JSON.stringify(history));
     } catch {
-      /* Call history remains available in memory for this session. */
+      /* Demo history remains available in memory for this session. */
     }
   }, [history, demoMode]);
 
   useEffect(() => {
     if (demoMode) return;
-    if (AUTH_CONFIGURED && !authSession?.access_token) return;
-    if (AUTH_CONFIGURED) setHistory([]);
+    if (AUTH_CONFIGURED && !authSession?.access_token) {
+      setHistory([]);
+      setHistoryError("");
+      setHistoryLoading(false);
+      return;
+    }
     let cancelled = false;
+    setHistory([]);
+    setHistoryError("");
+    setHistoryLoading(true);
     const headers: HeadersInit = authSession?.access_token
       ? { Authorization: "Bearer " + authSession.access_token }
       : {};
     fetch(API_BASE_URL + "/api/calls", { headers })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Call history could not be loaded");
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(typeof body.detail === "string" ? body.detail : "Call history could not be loaded");
+        }
         return response.json();
       })
       .then((rows: Array<{ id: string; prospect: string; company: string; outcome: string; stage: number; duration: string; transcript?: Array<{ speaker: string; text: string; time?: string }>; created_at: string }>) => {
-        if (cancelled || !Array.isArray(rows)) return;
+        if (cancelled) return;
+        if (!Array.isArray(rows)) throw new Error("The call history API returned an invalid response");
         setHistory(rows.map((row) => ({
           id: row.id,
           prospect: row.prospect,
           company: row.company,
-          date: row.created_at ? new Date(row.created_at).toLocaleString() : "Saved call",
+          date: row.created_at ? new Date(row.created_at).toLocaleString() : "Date unavailable",
           outcome: row.outcome,
           stage: row.stage,
           duration: row.duration,
           transcript: row.transcript ?? [],
         })));
       })
-      .catch(() => { if (!cancelled) setToast("Backend history unavailable; showing saved browser history."); });
+      .catch((error) => {
+        if (cancelled) return;
+        setHistory([]);
+        setHistoryError(error instanceof Error ? error.message : "Call history could not be loaded");
+        setToast("Could not load real call history. Check the backend connection.");
+      })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
     return () => { cancelled = true; };
   }, [authSession, demoMode]);
 
@@ -192,6 +211,14 @@ function App() {
 
   const filteredHistory = useMemo(() => history.filter((call) =>
     `${call.prospect} ${call.company} ${call.outcome}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
+  const durationSeconds = history.map((call) => {
+    const match = /^(\d+):(\d{2})$/.exec(call.duration || "");
+    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  }).filter((value): value is number => value !== null);
+  const totalDurationSeconds = durationSeconds.reduce((sum, value) => sum + value, 0);
+  const averageDuration = durationSeconds.length
+    ? `${String(Math.floor(totalDurationSeconds / durationSeconds.length / 60)).padStart(2, "0")}:${String(Math.floor(totalDurationSeconds / durationSeconds.length) % 60).padStart(2, "0")}`
+    : "—";
 
   function notify(message: string) { setToast(message); }
   function addTranscriptLine(speaker: "You" | "Prospect", text: string) {
@@ -288,10 +315,9 @@ function App() {
         }, ...items]);
         notify(AUTH_CONFIGURED ? "Call saved to your cloud history" : "Call saved to backend history");
       } catch {
-        setHistory((items) => [localCall, ...items]);
         notify(AUTH_CONFIGURED
-          ? "Cloud save failed. This call is only in the current session and was not synced."
-          : "Backend unavailable. Saved this call in browser history instead.");
+          ? "Cloud save failed. This call was not saved. Check your connection and try again."
+          : "Backend save failed. This call was not saved to history.");
       }
     }
     callStartedAtRef.current = null;
@@ -333,10 +359,8 @@ function App() {
   }
   function exitDemoMode() {
     setDemoMode(false);
-    try {
-      const stored = window.localStorage.getItem("dialog-ai-call-history");
-      setHistory(stored ? JSON.parse(stored) as CallRecord[] : []);
-    } catch { setHistory([]); }
+    setHistory([]);
+    setHistoryError("");
     setPage("workspace");
     notify("Returned to your workspace");
   }
@@ -359,7 +383,7 @@ function App() {
     setProspect(""); setCompany("");
     setStageIndex(0); setCallActive(true); setListening(false); setMicOn(false);
     setTranscript([]); setInterimTranscript(null); setNotes(""); setResponseType("Asked for context"); setSuggestion("Start with a concise opening. AI suggestions will appear here when the backend is connected.");
-    setPage("workspace"); notify("New demo call ready");
+    setPage("workspace"); notify(demoMode ? "New demo call ready" : "New call ready");
   }
 
   if (AUTH_CONFIGURED && !authSession?.access_token && !demoMode) {
@@ -458,10 +482,11 @@ function App() {
         ) : (
           <div className="page-content history-page">
             <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" />YOUR CONVERSATIONS</div><h1>Call history</h1><p>Review outcomes, learn from conversations, and pick up the next step.</p></div><button className="button button-primary" onClick={startNewCall}><Plus size={16} />Start a call</button></div>
-            <div className="history-metrics"><div className="metric-card"><span>Total calls</span><b>{history.length}</b><small><TrendingUp size={13} />Saved calls</small></div><div className="metric-card"><span>Meetings booked</span><b>{history.filter((x) => x.outcome === "Meeting booked").length}</b><small><Target size={13} />Meetings booked</small></div><div className="metric-card"><span>Avg. call duration</span><b>—</b><small><Clock3 size={13} />Duration not captured yet</small></div><div className="metric-card"><span>Avg. stage reached</span><b>{(history.reduce((n,x) => n + x.stage,0) / Math.max(1,history.length)).toFixed(1)}<small>/8</small></b><small><BarChart3 size={13} />Conversation depth</small></div></div>
+            <div className="history-metrics"><div className="metric-card"><span>Total calls</span><b>{history.length}</b><small><TrendingUp size={13} />{demoMode ? "Demo calls" : "Real saved calls"}</small></div><div className="metric-card"><span>Meetings booked</span><b>{history.filter((x) => x.outcome === "Meeting booked").length}</b><small><Target size={13} />From saved outcomes</small></div><div className="metric-card"><span>Avg. call duration</span><b>{averageDuration}</b><small><Clock3 size={13} />{durationSeconds.length ? "From recorded durations" : "No duration data yet"}</small></div><div className="metric-card"><span>Avg. stage reached</span><b>{history.length ? (history.reduce((n,x) => n + x.stage,0) / history.length).toFixed(1) : "—"}<small>/8</small></b><small><BarChart3 size={13} />From saved calls</small></div></div>
             <section className="panel history-table-panel"><div className="history-toolbar"><div><h2>Recent calls</h2><p>Latest activity across your workspace</p></div><div className="history-filters"><label className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search prospect or company" /></label><button className="button button-secondary" onClick={() => notify("Showing all call outcomes")}><Settings2 size={15} />Filters</button></div></div>
-              <div className="table-wrap"><table><thead><tr><th>PROSPECT</th><th>DATE</th><th>FURTHEST STAGE</th><th>DURATION</th><th>OUTCOME</th><th /></tr></thead><tbody>{filteredHistory.map((call) => <tr key={call.id}><td><div className="table-person"><div className="table-avatar">{call.prospect.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div><b>{call.prospect}</b><small>{call.company}</small></div></div></td><td>{call.date}</td><td><div className="stage-cell"><div className="mini-progress"><span style={{ width: `${call.stage / 8 * 100}%` }} /></div><span>{call.stage}/8</span></div></td><td>{call.duration}</td><td><span className={`outcome-pill ${call.outcome === "Meeting booked" ? "positive" : call.outcome === "Not a fit" ? "neutral" : "followup"}`}><i />{call.outcome}</span></td><td><button className="icon-button small" aria-label={`View ${call.prospect}`} onClick={() => setSelectedCall(call)}><ArrowRight size={15} /></button></td></tr>)}</tbody></table>{filteredHistory.length === 0 && <div className="no-results">No calls match that search.</div>}</div>
-              <div className="table-footer"><span>Showing {filteredHistory.length} recent calls</span><span>Furthest stage reached is saved per call</span></div>
+              {historyError && !demoMode && <div className="history-error" role="alert">{historyError}</div>}
+              <div className="table-wrap"><table><thead><tr><th>PROSPECT</th><th>DATE</th><th>FURTHEST STAGE</th><th>DURATION</th><th>OUTCOME</th><th /></tr></thead><tbody>{filteredHistory.map((call) => <tr key={call.id}><td><div className="table-person"><div className="table-avatar">{call.prospect.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div><b>{call.prospect}</b><small>{call.company}</small></div></div></td><td>{call.date}</td><td><div className="stage-cell"><div className="mini-progress"><span style={{ width: `${call.stage / 8 * 100}%` }} /></div><span>{call.stage}/8</span></div></td><td>{call.duration || "—"}</td><td><span className={`outcome-pill ${call.outcome === "Meeting booked" ? "positive" : call.outcome === "Not a fit" ? "neutral" : "followup"}`}><i />{call.outcome}</span></td><td><button className="icon-button small" aria-label={`View ${call.prospect}`} onClick={() => setSelectedCall(call)}><ArrowRight size={15} /></button></td></tr>)}</tbody></table>{historyLoading ? <div className="no-results">Loading saved calls from the backend…</div> : filteredHistory.length === 0 && <div className="no-results">{historyError ? "Real call history is unavailable. No sample data is being shown." : search ? "No saved calls match that search." : demoMode ? "No demo calls yet." : "No real calls saved yet. End and save a call to see it here."}</div>}</div>
+              <div className="table-footer"><span>Showing {filteredHistory.length} {demoMode ? "demo" : "saved"} calls</span><span>{demoMode ? "Sample data is separate from real history" : "Loaded from the call history API"}</span></div>
             </section>
           </div>
         )}

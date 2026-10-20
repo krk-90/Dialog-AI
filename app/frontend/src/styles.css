@@ -126,3 +126,12 @@
 .saved-transcript-line b { font-size: 12px; }
 .saved-transcript-line span { float: right; font-size: 11px; opacity: .65; }
 .saved-transcript-line p { margin: 5px 0 0; line-height: 1.5; }
+
+.history-error {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(220, 90, 90, 0.35);
+  border-radius: 10px;
+  color: var(--text-secondary, #b8b8b8);
+  font-size: 13px;
+}
