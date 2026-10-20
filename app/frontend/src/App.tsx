@@ -211,6 +211,14 @@ function App() {
 
   const filteredHistory = useMemo(() => history.filter((call) =>
     `${call.prospect} ${call.company} ${call.outcome}`.toLowerCase().includes(search.toLowerCase())), [history, search]);
+  const durationSeconds = history.map((call) => {
+    const match = /^(\d+):(\d{2})$/.exec(call.duration || "");
+    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  }).filter((value): value is number => value !== null);
+  const totalDurationSeconds = durationSeconds.reduce((sum, value) => sum + value, 0);
+  const averageDuration = durationSeconds.length
+    ? `${String(Math.floor(totalDurationSeconds / durationSeconds.length / 60)).padStart(2, "0")}:${String(Math.floor(totalDurationSeconds / durationSeconds.length) % 60).padStart(2, "0")}`
+    : "—";
 
   function notify(message: string) { setToast(message); }
   function addTranscriptLine(speaker: "You" | "Prospect", text: string) {
@@ -307,10 +315,9 @@ function App() {
         }, ...items]);
         notify(AUTH_CONFIGURED ? "Call saved to your cloud history" : "Call saved to backend history");
       } catch {
-        setHistory((items) => [localCall, ...items]);
         notify(AUTH_CONFIGURED
-          ? "Cloud save failed. This call is only in the current session and was not synced."
-          : "Backend unavailable. Saved this call in browser history instead.");
+          ? "Cloud save failed. This call was not saved. Check your connection and try again."
+          : "Backend save failed. This call was not saved to history.");
       }
     }
     callStartedAtRef.current = null;
@@ -378,7 +385,7 @@ function App() {
     setProspect(""); setCompany("");
     setStageIndex(0); setCallActive(true); setListening(false); setMicOn(false);
     setTranscript([]); setInterimTranscript(null); setNotes(""); setResponseType("Asked for context"); setSuggestion("Start with a concise opening. AI suggestions will appear here when the backend is connected.");
-    setPage("workspace"); notify("New demo call ready");
+    setPage("workspace"); notify(demoMode ? "New demo call ready" : "New call ready");
   }
 
   if (AUTH_CONFIGURED && !authSession?.access_token && !demoMode) {
