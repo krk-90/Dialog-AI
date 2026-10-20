@@ -145,3 +145,14 @@ The repository includes a Render blueprint for the FastAPI service. Configure `D
 ## Privacy and consent
 
 Only capture calls when you have the required consent and legal basis. Treat transcripts as sensitive customer data, avoid logging secrets or full transcripts unnecessarily, and define retention/deletion rules before production use.
+
+
+## Diagnose Supabase connectivity
+
+To test Supabase independently of Groq and Deepgram, configure `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the backend `.env`, then run from the repository root:
+
+```bash
+python evaluation/supabase_check.py
+```
+
+The script checks the REST API gateway and Auth health endpoint, reports sanitized provider error messages, and never prints the configured key. It does not test table permissions or row-level security for a signed-in user.
