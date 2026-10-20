@@ -1,6 +1,9 @@
 """Dialog AI API application."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from app.routes.transcription import router as transcription_router
 from app.routes.coaching import router as coaching_router
