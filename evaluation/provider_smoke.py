@@ -1,9 +1,12 @@
 """Minimal live-provider smoke checks for CI. Never prints credentials or response bodies."""
 from __future__ import annotations
 
+import base64
 import json
 import os
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -107,6 +110,30 @@ def call(
     return ok
 
 
+def _supabase_key_hint(url: str, key: str) -> str:
+    """Compare non-secret JWT claims with the configured Supabase project URL."""
+    try:
+        host = urllib.parse.urlparse(url).hostname or ""
+        project_ref = host.split(".", 1)[0] if host.endswith(".supabase.co") else ""
+        parts = key.split(".")
+        if len(parts) != 3:
+            return "key_format=not_legacy_jwt"
+        payload = parts[1] + "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
+        token_ref = claims.get("ref")
+        expires = claims.get("exp")
+        role = claims.get("role")
+        details = []
+        if project_ref and isinstance(token_ref, str):
+            details.append("project_ref_match=" + str(project_ref == token_ref).lower())
+        if isinstance(role, str) and role in ("anon", "authenticated", "service_role"):
+            details.append("jwt_role=" + role)
+        if isinstance(expires, (int, float)):
+            details.append("jwt_expired=" + str(expires <= time.time()).lower())
+        return ", ".join(details) if details else "claims_unavailable"
+    except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+        return "claims_unavailable"
+
 def main() -> int:
     groq = os.getenv("GROQ_API_KEY", "").strip()
     deepgram = os.getenv("DEEPGRAM_API_KEY", "").strip()
@@ -128,6 +155,8 @@ def main() -> int:
     # dashboard URL, service-role key in the wrong field, or malformed URL.
     print(f"Config check: GROQ_API_KEY present ({len(groq)} chars); model-specific setting not required")
     print(f"Config check: SUPABASE_URL format={'https' if supabase_url.startswith('https://') else 'unexpected'}; SUPABASE_ANON_KEY format={'publishable' if supabase_key.startswith('sb_publishable_') else 'JWT-like' if supabase_key.startswith('eyJ') else 'unknown'}")
+    if supabase_key.startswith("eyJ"):
+        print("Supabase key claims: " + _supabase_key_hint(supabase_url, supabase_key))
 
     results = [
         call(
