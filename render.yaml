@@ -9,5 +9,9 @@ services:
     envVars:
       - key: DEEPGRAM_API_KEY
         sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
       - key: FRONTEND_ORIGINS
         sync: false
