@@ -96,6 +96,12 @@ Frontend `app/frontend/.env`:
 
 **Never put Deepgram or Groq secrets in frontend variables or commit them to Git.** For Render, set backend secrets in the service environment. For a separately hosted frontend, set `VITE_API_BASE_URL` and configure `FRONTEND_ORIGINS` to match the deployed origin.
 
+## Demo workspace
+
+Use **Explore demo** on the sign-in screen or the sidebar to inspect the workspace without creating an account. The demo includes clearly labelled sample call history and saved transcript details. Calls created in demo mode are stored only in that browser under a separate local-storage key; they are not sent to the backend or mixed with an authenticated user's cloud history. Open a call from the history table to review its saved transcript, outcome, stage, and duration.
+
+For real calls, configure Supabase Auth and cloud history as described below. In local development, Vite proxies `/api/calls` to FastAPI alongside the transcription and coaching endpoints.
+
 ## Supabase cloud history
 
 1. Create a Supabase project.
