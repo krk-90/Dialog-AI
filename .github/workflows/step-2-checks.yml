@@ -31,3 +31,23 @@ jobs:
           node-version: "20"
       - run: npm ci
       - run: npm run build
+
+  provider-smoke:
+    # Environment-scoped secrets are only available when this job targets that environment.
+    environment: secrets-dia
+    # Run live provider checks for PRs and explicitly tagged verification pushes.
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[provider-smoke]'))
+    runs-on: ubuntu-latest
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GROQ_MODEL: ${{ secrets.GROQ_MODEL }}
+      DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test configured AI and database providers
+        run: python evaluation/provider_smoke.py
