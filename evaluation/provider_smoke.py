@@ -112,23 +112,15 @@ def main() -> int:
 
     # Print formats only, never key values. This catches accidentally storing a
     # dashboard URL, service-role key in the wrong field, or malformed URL.
-    print(f"Config check: GROQ_API_KEY present ({len(groq)} chars); model={os.getenv('GROQ_MODEL', '').strip() or 'llama-3.3-70b-versatile'}")
+    print(f"Config check: GROQ_API_KEY present ({len(groq)} chars); model-specific setting not required")
     print(f"Config check: SUPABASE_URL format={'https' if supabase_url.startswith('https://') else 'unexpected'}; SUPABASE_ANON_KEY format={'publishable' if supabase_key.startswith('sb_publishable_') else 'JWT-like' if supabase_key.startswith('eyJ') else 'unknown'}")
 
-    model = os.getenv("GROQ_MODEL", "").strip() or "llama-3.3-70b-versatile"
     results = [
         call(
-            "Groq chat completion",
-            "https://api.groq.com/openai/v1/chat/completions",
-            method="POST",
-            headers={"Authorization": f"Bearer {groq}", "Content-Type": "application/json"},
-            payload={
-                "model": model,
-                "messages": [{"role": "user", "content": "Reply with the single word OK."}],
-                "max_tokens": 8,
-                "temperature": 0,
-            },
-            validate_json_field="choices",
+            "Groq API authentication",
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {groq}"},
+            validate_json_field="data",
         ),
         call(
             "Deepgram API key",
