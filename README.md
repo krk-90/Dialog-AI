@@ -155,4 +155,4 @@ To test Supabase independently of Groq and Deepgram, configure `SUPABASE_URL` an
 python evaluation/supabase_check.py
 ```
 
-The script queries `public.calls` with `select=id&limit=0` and checks Auth health, reports sanitized provider error messages, and never prints the configured key. It sends publishable keys through `apikey` only; legacy JWT anon keys are also sent as a Bearer token. If REST returns 401, verify the URL and key are from the same project. It does not test row-level security for a signed-in user.
+The script queries `public.calls` with `select=id&limit=0` and checks Auth health, reports sanitized provider error messages, and never prints the configured key. It sends publishable keys through `apikey` only; legacy JWT anon keys are also sent as a Bearer token. If REST returns 401, verify the URL and key are from the same project and that the GitHub Actions environment has the current public key. It does not test row-level security for a signed-in user.
