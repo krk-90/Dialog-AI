@@ -81,7 +81,7 @@ Backend `.env`:
 | `GROQ_API_KEY` | No | Server-side key for AI coaching; built-in fallback works without it |
 | `GROQ_MODEL` | No | Groq model name; defaults to `llama-3.3-70b-versatile` |
 | `FRONTEND_ORIGINS` | For deployment | Comma-separated allowed frontend origins |
-| `DIALOG_AI_DB_PATH` | No | Local SQLite file path; defaults to `data/dialog-ai.sqlite3` |
+| `DIALOG_AI_LOCAL_HISTORY` | No | Set `true` for unauthenticated local SQLite history; set `false` on public deployments |\n| `DIALOG_AI_DB_PATH` | No | Local SQLite file path; defaults to `data/dialog-ai.sqlite3` |
 | `SUPABASE_URL` | Optional | Supabase project URL for cloud call history; configure with the anon key to enable cloud mode |
 | `SUPABASE_ANON_KEY` | Optional | Supabase public anon key used server-side with the signed-in user JWT; never use a service-role key |
 
@@ -103,7 +103,7 @@ Frontend `app/frontend/.env`:
 4. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the frontend environment and rebuild/redeploy it.
 5. Enable the desired email sign-up / confirmation settings in Supabase Auth.
 
-When Supabase is configured, the UI requires sign-in, loads the signed-in user's call history, and saves completed calls through the backend. Supabase RLS scopes rows to `auth.uid()`; the backend never accepts a client-supplied `user_id`. Without Supabase configuration, the backend stores call history in `data/dialog-ai.sqlite3`. This persists across local restarts. Render's default filesystem is ephemeral, so configure Supabase for durable deployed history.
+When Supabase is configured, the UI requires sign-in, loads the signed-in user's call history, and saves completed calls through the backend. Supabase RLS scopes rows to `auth.uid()`; the backend never accepts a client-supplied `user_id`. Without Supabase configuration, the backend stores call history in `data/dialog-ai.sqlite3`. This persists across local restarts. Render's default filesystem is ephemeral, so configure Supabase for durable deployed history. Unauthenticated SQLite history is disabled by the Render blueprint.
 
 ## Tests and evaluation
 
