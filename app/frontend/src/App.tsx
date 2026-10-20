@@ -101,6 +101,7 @@ function App() {
     void line;
   }
   function finishCall() {
+    transcription.stop();
     setHistory((items) => [{
       id: `DL-${Math.floor(2050 + Math.random() * 900)}`, prospect, company,
       date: "Just now", outcome, stage: stageIndex + 1, duration: "Live",
@@ -110,6 +111,7 @@ function App() {
     setPage("history");
   }
   function startNewCall() {
+    transcription.stop();
     setStageIndex(0); setCallActive(true); setListening(false); setMicOn(false);
     setTranscript([]); setInterimTranscript(null); setNotes(""); setResponseType("Asked for context"); setSuggestion("Start with a concise opening. AI suggestions will appear here when the backend is connected.");
     setPage("workspace"); notify("New demo call ready");
@@ -146,7 +148,7 @@ function App() {
                   <div className="panel-heading"><div className="heading-icon purple"><AudioLines size={17} /></div><div><h2>Live transcript</h2><p>Capture the words that matter</p></div><span className={`live-pill ${listening ? "listening" : ""}`}><i />{listening ? "LISTENING" : "MANUAL MODE"}</span><button className="icon-button small" aria-label="Transcript help" onClick={() => notify("Live speech-to-text needs a provider connection on the backend")}><CircleHelp size={16} /></button></div>
                   <div className="transcript-feed" ref={transcriptRef}>
                     {transcript.length === 0 && <div className="empty-transcript"><AudioLines size={26} /><b>Conversation starts here</b><span>Use the composer below to add a speaker turn.</span></div>}
-                    {[...transcript, ...(interimTranscript ? [interimTranscript] : [])].map((line) => <div className={`transcript-line ${line.speaker === "Prospect" || line.speaker === "Voice 2" ? "prospect-line" : ""}`} key={line.id}><div className={`speaker-avatar ${line.speaker === "Prospect" || line.speaker === "Voice 2" ? "prospect-speaker" : ""}`}>{line.speaker === "You" || line.speaker === "Voice 1" ? "Y" : line.speaker === "Unknown" ? "?" : "P"}</div><div className="transcript-copy"><div className="transcript-meta"><b>{line.speaker === "You" ? "You" : line.speaker === "Prospect" ? prospect : line.speaker}</b><span>{line.time}{line === interimTranscript ? " · interim" : ""}</span></div><p>{line.text}</p></div></div>)}
+                    {[...transcript, ...(interimTranscript ? [interimTranscript] : [])].map((line) => <div className={`transcript-line ${line.speaker === "Prospect" || line.speaker === "Voice 2" ? "prospect-line" : ""}`} key={line.id}><div className={`speaker-avatar ${line.speaker === "Prospect" || line.speaker === "Voice 2" ? "prospect-speaker" : ""}`}>{line.speaker === "You" ? "Y" : line.speaker === "Voice 1" ? "1" : line.speaker === "Voice 2" ? "2" : line.speaker === "Unknown" ? "?" : "P"}</div><div className="transcript-copy"><div className="transcript-meta"><b>{line.speaker === "You" ? "You" : line.speaker === "Prospect" ? prospect : line.speaker}</b><span>{line.time}{line === interimTranscript ? " · interim" : ""}</span></div><p>{line.text}</p></div></div>)}
                   </div>
                   <form className="transcript-composer" onSubmit={(e) => { e.preventDefault(); addTranscriptLine("Prospect", draft); }}>
                     <div className="composer-top"><span><span className="keyboard-dot" />Add transcript line</span><span>Manual entry</span></div>
