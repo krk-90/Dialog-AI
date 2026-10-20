@@ -44,6 +44,7 @@ function App() {
   const [company, setCompany] = useState("Meridian Software");
   const [callActive, setCallActive] = useState(true);
   const [micOn, setMicOn] = useState(false);
+  const [audioSource, setAudioSource] = useState<"microphone" | "system" | "both">("both");
   const [listening, setListening] = useState(false);
   const [responseType, setResponseType] = useState("Asked for context");
   const [notes, setNotes] = useState("");
@@ -57,7 +58,7 @@ function App() {
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const transcription = useDeepgramTranscription({ onSegment: (segment) => {
+  const transcription = useDeepgramTranscription({ audioSource, onSegment: (segment) => {
     const line: TranscriptLine = {
       id: Date.now(),
       speaker: segment.speaker,
@@ -161,7 +162,7 @@ function App() {
             <section className="call-overview panel">
               <div className="prospect-block"><div className="prospect-avatar">{prospect.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div className="prospect-details"><div className="prospect-name">{prospect}<span className="verified"><BadgeCheck size={14} /></span></div><div className="company-line">{company}<span className="meta-dot" />Outbound prospect</div><div className="call-meta"><span><Clock3 size={13} />00:04:32</span><span><Activity size={13} />{listening ? "Listening" : "Audio source not connected"}</span></div></div></div>
               <div className="overview-divider" /><div className="call-progress"><div className="progress-label"><span>Conversation progress</span><b>{stageIndex + 1} <small>/ 8 stages</small></b></div><div className="progress-track"><div style={{ width: `${progress}%` }} /></div><div className="progress-foot"><span>{stage.name}</span><span>{progress}% complete</span></div></div>
-              <div className="overview-controls"><button className={`control-button ${micOn ? "control-active" : ""}`} onClick={toggleMic}>{micOn ? <Mic size={16} /> : <MicOff size={16} />}{micOn ? "Stop transcription" : "Start transcription"}</button><button className="end-call" onClick={() => setShowEnd(true)} disabled={!callActive}><PhoneOff size={15} />End call</button></div>
+              <div className="overview-controls"><label className="audio-source-control"><Headphones size={15} /><span className="sr-only">Audio source</span><select aria-label="Audio source" value={audioSource} onChange={(event) => setAudioSource(event.target.value as "microphone" | "system" | "both")} disabled={micOn}><option value="microphone">Microphone</option><option value="system">Desktop audio</option><option value="both">Desktop + mic</option></select></label><button className={`control-button ${micOn ? "control-active" : ""}`} onClick={toggleMic}>{micOn ? <Mic size={16} /> : <MicOff size={16} />}{micOn ? "Stop transcription" : "Start transcription"}</button><button className="end-call" onClick={() => setShowEnd(true)} disabled={!callActive}><PhoneOff size={15} />End call</button></div>
             </section>
 
             <div className="workspace-grid">
