@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       proxy: {
         "/api/transcription": { target: backend, changeOrigin: true },
+        "/api/coaching": { target: backend, changeOrigin: true },
         "/health": { target: backend, changeOrigin: true },
       },
     },

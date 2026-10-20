@@ -11,6 +11,7 @@ import {
 type Stage = { name: string; purpose: string; prompt: string; tip: string };
 type TranscriptLine = { id: number; speaker: "You" | "Prospect" | "Voice 1" | "Voice 2" | "Unknown"; text: string; time: string };
 type CallRecord = { id: string; prospect: string; company: string; date: string; outcome: string; stage: number; duration: string };
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
 const stages: Stage[] = [
   { name: "Opening", purpose: "Earn a few seconds of attention", prompt: "Hi, this is Alex from Dialog. Have I caught you at an okay time for a quick question?", tip: "Be warm, direct, and brief. Avoid launching into a pitch." },
@@ -51,6 +52,7 @@ function App() {
   const [transcript, setTranscript] = useState(initialLines);
   const [interimTranscript, setInterimTranscript] = useState<TranscriptLine | null>(null);
   const [draft, setDraft] = useState("");
+  const [coachLoading, setCoachLoading] = useState(false);
   const [suggestion, setSuggestion] = useState("They've offered a one-minute window. Give a concise reason for calling, then ask one focused question.");
   const [history, setHistory] = useState(seedHistory);
   const [showEnd, setShowEnd] = useState(false);
@@ -113,6 +115,32 @@ function App() {
     }
     await transcription.start();
   }
+  async function requestCoaching() {
+    setCoachLoading(true);
+    try {
+      const response = await fetch(API_BASE_URL + "/api/coaching/suggestion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stage: stage.name,
+          purpose: stage.purpose,
+          response_type: responseType,
+          notes,
+          transcript: transcript.slice(-8).map((line) => line.speaker + ": " + line.text),
+        }),
+      });
+      if (!response.ok) throw new Error("Coaching service is unavailable");
+      const data: { suggestion: string; source: "groq" | "fallback" } = await response.json();
+      setSuggestion(data.suggestion);
+      notify(data.source === "groq" ? "Coaching refreshed" : "Using built-in coaching guidance");
+    } catch {
+      setSuggestion(stage.tip);
+      notify("AI coaching unavailable. Showing built-in guidance instead.");
+    } finally {
+      setCoachLoading(false);
+    }
+  }
+
   function saveStage() {
     const line = notes.trim() ? `Stage note: ${notes.trim()}` : `Response marked: ${responseType}`;
     notify(`Stage ${stageIndex + 1} result saved in this demo session`);
@@ -192,7 +220,7 @@ function App() {
                   <div className="stage-context"><span className="context-label">STAGE {String(stageIndex + 1).padStart(2,"0")} <span>/ 08</span></span><h3>{stage.name}</h3><p>{stage.purpose}</p></div>
                   <div className="guidance-section"><div className="section-label"><span className="section-dot violet" />SUGGESTED LANGUAGE</div><blockquote>{stage.prompt}</blockquote><button className="copy-link" onClick={() => { void navigator.clipboard?.writeText(stage.prompt); notify("Suggested language copied"); }}>Copy suggestion <Command size={13} /></button></div>
                   <div className="tip-box"><div className="tip-icon"><Zap size={15} /></div><div><b>Coach's note</b><p>{stage.tip}</p></div></div>
-                  <div className="ai-insight"><div className="ai-insight-head"><div><Sparkles size={15} /><b>Conversation insight</b></div><span>DEMO</span></div><p>{suggestion}</p><div className="insight-foot"><span><Activity size={13} />Context-aware guidance</span><span>Illustrative</span></div></div>
+                  <div className="ai-insight"><div className="ai-insight-head"><div><Sparkles size={15} /><b>Conversation insight</b></div><span>{coachLoading ? "WORKING" : "LIVE"}</span></div><p>{suggestion}</p><div className="insight-foot"><span><Activity size={13} />Stage + recent context</span><button className="copy-link" onClick={() => void requestCoaching()} disabled={coachLoading}>{coachLoading ? "Thinking…" : "Refresh coaching"} <Sparkles size={13} /></button></div></div>
                   <div className="stage-actions"><button className="button button-secondary" onClick={() => setStageIndex(Math.max(0, stageIndex - 1))} disabled={stageIndex === 0}><ArrowLeft size={15} />Previous</button><button className="button button-primary" onClick={saveStage}>{stageIndex === 7 ? "Save stage" : "Save & continue"}<ArrowRight size={15} /></button></div>
                 </section>
 
