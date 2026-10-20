@@ -92,8 +92,8 @@ def main() -> int:
             },
             validate_json_field="choices",
         ),
-        # Listing projects validates a Deepgram API key without creating a key or
-        # requiring key-management permissions/project IDs.
+        # [provider-smoke] Listing projects validates auth without creating a key
+        # or requiring key-management permissions and project IDs.
         call(
             "Deepgram API key",
             "https://api.deepgram.com/v1/projects",
