@@ -157,7 +157,7 @@ function App() {
         if (!response.ok) throw new Error("Call history could not be loaded");
         return response.json();
       })
-      .then((rows: Array<{ id: string; prospect: string; company: string; outcome: string; stage: number; duration: string; created_at: string }>) => {
+      .then((rows: Array<{ id: string; prospect: string; company: string; outcome: string; stage: number; duration: string; transcript?: Array<{ speaker: string; text: string; time?: string }>; created_at: string }>) => {
         if (cancelled || !Array.isArray(rows)) return;
         setHistory(rows.map((row) => ({
           id: row.id,
@@ -167,6 +167,7 @@ function App() {
           outcome: row.outcome,
           stage: row.stage,
           duration: row.duration,
+          transcript: row.transcript ?? [],
         })));
       })
       .catch(() => { if (!cancelled) setToast("Backend history unavailable; showing saved browser history."); });
