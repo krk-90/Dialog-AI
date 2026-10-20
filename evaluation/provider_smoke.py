@@ -10,12 +10,14 @@ import urllib.parse
 import urllib.request
 
 
-def _safe_error_hint(body: bytes, headers=None) -> str:
+def _safe_error_hint(body: bytes, headers=None, status_code: int | None = None) -> str:
     """Expose sanitized error categories and safe response metadata, never body text."""
     try:
         parsed = json.loads(body)
     except (ValueError, TypeError):
-        details = ["non_json_error_response"]
+        details = ["non_json_error_response", f"body_bytes={len(body)}"]
+        if status_code is not None:
+            details.append(f"http_status={status_code}")
         if headers is not None:
             content_type = headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
             if content_type and len(content_type) <= 80 and all(c.isalnum() or c in "/.+-_" for c in content_type):
@@ -69,9 +71,30 @@ def _safe_error_hint(body: bytes, headers=None) -> str:
     else:
         category = "unclassified_provider_error"
 
-    details = [f"diagnosis={category}"]
+    if category == "unclassified_provider_error" and status_code == 401:
+        category = "http_401_authentication_rejected"
+
+    details = [f"diagnosis={category}", f"body_bytes={len(body)}"]
+    if status_code is not None:
+        details.append(f"http_status={status_code}")
+    if isinstance(parsed, dict):
+        safe_keys = [
+            key for key in parsed.keys()
+            if isinstance(key, str) and key and len(key) <= 40
+            and all(char.isalnum() or char in "._-" for char in key)
+        ]
+        if safe_keys:
+            details.append("json_keys=" + ",".join(sorted(set(safe_keys))[:8]))
+    if headers is not None:
+        content_type = headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type and len(content_type) <= 80 and all(c.isalnum() or c in "/.+-_" for c in content_type):
+            details.append(f"content_type={content_type}")
+        for header in ("x-request-id", "request-id", "cf-ray"):
+            value = headers.get(header, "")
+            if value and len(value) <= 100 and all(c.isalnum() or c in "-_." for c in value):
+                details.append(f"{header.replace(chr(45), chr(95))}={value}")
     details.extend(dict.fromkeys(metadata))
-    return " (" + ", ".join(details) + ")"
+    return " (" + ", ".join(dict.fromkeys(details)) + ")"
 
 
 def call(
@@ -110,7 +133,7 @@ def call(
             ok = False
 
     status = "PASS" if ok else "FAIL"
-    hint = "" if ok else _safe_error_hint(body, response_headers)
+    hint = "" if ok else _safe_error_hint(body, response_headers, code)
     print(f"{status} {name}: HTTP {code}{hint}")
     return ok
 
