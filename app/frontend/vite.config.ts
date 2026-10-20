@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         "/api/transcription": { target: backend, changeOrigin: true },
         "/api/coaching": { target: backend, changeOrigin: true },
+        "/api/calls": { target: backend, changeOrigin: true },
         "/health": { target: backend, changeOrigin: true },
       },
     },
