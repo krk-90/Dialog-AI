@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from evaluation.provider_smoke import _safe_error_hint, _supabase_key_hint
+from evaluation.provider_smoke import _safe_error_hint, _supabase_key_hint, _supabase_rest_headers
 
 
 def test_supabase_401_without_json_message_is_classified_and_sanitized() -> None:
@@ -61,3 +61,21 @@ def test_auth_error_emits_only_allowlisted_error_signals() -> None:
     assert "diagnosis=http_401_authentication_rejected" in hint
     assert "error_signals=project,publishable" in hint
     assert "was not accepted" not in hint
+
+
+
+def test_publishable_key_uses_apikey_without_bearer() -> None:
+    key = "sb_publishable_example-value"
+    headers = _supabase_rest_headers(key)
+
+    assert headers["apikey"] == key
+    assert headers["Accept-Profile"] == "public"
+    assert "Authorization" not in headers
+
+
+def test_legacy_anon_jwt_uses_apikey_and_bearer() -> None:
+    key = "eyJ.example.signature"
+    headers = _supabase_rest_headers(key)
+
+    assert headers["apikey"] == key
+    assert headers["Authorization"] == f"Bearer {key}"
