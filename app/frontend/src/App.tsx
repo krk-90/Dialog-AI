@@ -203,6 +203,11 @@ function App() {
     void line;
   }
   async function finishCall() {
+    if (!prospect.trim()) {
+      notify("Add the prospect name before saving this call.");
+      setShowEnd(false);
+      return;
+    }
     transcription.stop();
     const newCall: CallRecord = {
       id: `DL-${Math.floor(2050 + Math.random() * 900)}`, prospect, company,
@@ -264,6 +269,7 @@ function App() {
   }
   function startNewCall() {
     transcription.stop();
+    setProspect(""); setCompany("");
     setStageIndex(0); setCallActive(true); setListening(false); setMicOn(false);
     setTranscript([]); setInterimTranscript(null); setNotes(""); setResponseType("Asked for context"); setSuggestion("Start with a concise opening. AI suggestions will appear here when the backend is connected.");
     setPage("workspace"); notify("New demo call ready");
@@ -312,7 +318,7 @@ function App() {
             <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" />REAL-TIME ASSISTANCE</div><h1>Live call workspace</h1><p>Stay present in the conversation. We'll keep the details in view.</p></div><div className="heading-actions"><span className={`call-state ${callActive ? "on" : "off"}`}><i />{callActive ? "Call in progress" : "Call ended"}</span><button className="button button-secondary" onClick={startNewCall}><Plus size={16} />New call</button></div></div>
 
             <section className="call-overview panel">
-              <div className="prospect-block"><div className="prospect-avatar">{prospect.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div className="prospect-details"><div className="prospect-name">{prospect}<span className="verified"><BadgeCheck size={14} /></span></div><div className="company-line">{company}<span className="meta-dot" />Outbound prospect</div><div className="call-meta"><span><Clock3 size={13} />00:04:32</span><span><Activity size={13} />{listening ? "Listening" : "Audio source not connected"}</span></div></div></div>
+              <div className="prospect-block"><div className="prospect-avatar">{prospect.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div className="prospect-details"><label className="prospect-name"><span className="sr-only">Prospect name</span><input className="call-detail-input" value={prospect} onChange={(event) => setProspect(event.target.value)} placeholder="Prospect name" maxLength={160} /><span className="verified"><BadgeCheck size={14} /></span></label><label className="company-line"><span className="sr-only">Company</span><input className="call-detail-input company-input" value={company} onChange={(event) => setCompany(event.target.value)} placeholder="Company (optional)" maxLength={160} /><span className="meta-dot" />Outbound prospect</label><div className="call-meta"><span><Clock3 size={13} />Current session</span><span><Activity size={13} />{listening ? "Listening" : "Audio source not connected"}</span></div></div></div>
               <div className="overview-divider" /><div className="call-progress"><div className="progress-label"><span>Conversation progress</span><b>{stageIndex + 1} <small>/ 8 stages</small></b></div><div className="progress-track"><div style={{ width: `${progress}%` }} /></div><div className="progress-foot"><span>{stage.name}</span><span>{progress}% complete</span></div></div>
               <div className="overview-controls"><label className="audio-source-control"><Headphones size={15} /><span className="sr-only">Audio source</span><select aria-label="Audio source" value={audioSource} onChange={(event) => setAudioSource(event.target.value as "microphone" | "system" | "both")} disabled={micOn}><option value="microphone">Microphone</option><option value="system">Desktop audio</option><option value="both">Desktop + mic</option></select></label><button className={`control-button ${micOn ? "control-active" : ""}`} onClick={toggleMic}>{micOn ? <Mic size={16} /> : <MicOff size={16} />}{micOn ? "Stop transcription" : "Start transcription"}</button><button className="end-call" onClick={() => setShowEnd(true)} disabled={!callActive}><PhoneOff size={15} />End call</button></div>
             </section>
