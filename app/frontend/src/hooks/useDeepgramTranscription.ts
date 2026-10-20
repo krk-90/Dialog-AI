@@ -4,13 +4,13 @@ export type LiveTranscriptSegment = {
   id: string;
   text: string;
   isFinal: boolean;
-  speaker: "You" | "Prospect" | "Unknown";
+  speaker: "Voice 1" | "Voice 2" | "Unknown";
   receivedAt: number;
 };
 type Status = "idle" | "connecting" | "listening" | "error";
-type Options = { tokenEndpoint?: string; onSegment?: (segment: LiveTranscriptSegment) => void };
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\\/$/, "");\ntype Options = { tokenEndpoint?: string; onSegment?: (segment: LiveTranscriptSegment) => void };
 
-export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/deepgram-token", onSegment }: Options = {}) {
+export function useDeepgramTranscription({ tokenEndpoint = `${API_BASE_URL}/api/transcription/deepgram-token`, onSegment }: Options = {}) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [segments, setSegments] = useState<LiveTranscriptSegment[]>([]);
@@ -71,7 +71,7 @@ export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/d
           if (!text) return;
           const speakerIndex = alternative?.words?.[0]?.speaker;
           // Diarization identifies distinct voices, not their real-world identity.
-          const speaker: LiveTranscriptSegment["speaker"] = Number.isInteger(speakerIndex) ? (speakerIndex === 0 ? "You" : "Prospect") : "Unknown";
+          const speaker: LiveTranscriptSegment["speaker"] = Number.isInteger(speakerIndex) ? (speakerIndex === 0 ? "Voice 1" : "Voice 2") : "Unknown";
           const segment: LiveTranscriptSegment = { id: crypto.randomUUID(), text, isFinal: Boolean(payload.is_final), speaker, receivedAt: Date.now() };
           setSegments((previous) => {
             const next = segment.isFinal ? [...previous, segment] : [...previous.filter((item) => item.isFinal), segment];
