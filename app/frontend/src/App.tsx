@@ -325,6 +325,15 @@ function App() {
     setDemoMode(false);
     notify("Signed out");
   }
+  function exitDemoMode() {
+    setDemoMode(false);
+    try {
+      const stored = window.localStorage.getItem("dialog-ai-call-history");
+      setHistory(stored ? JSON.parse(stored) as CallRecord[] : []);
+    } catch { setHistory([]); }
+    setPage("workspace");
+    notify("Returned to your workspace");
+  }
   function enterDemoMode() {
     setDemoMode(true);
     setHistory(() => {
@@ -379,8 +388,9 @@ function App() {
         <div className="nav-label">WORKSPACE</div>
         <button className={`nav-item ${page === "workspace" ? "active" : ""}`} onClick={() => setPage("workspace")}><LayoutDashboard size={17} />Live call <span className="nav-live"><i />LIVE</span></button>
         <button className={`nav-item ${page === "history" ? "active" : ""}`} onClick={() => setPage("history")}><History size={17} />Call history</button>
+        <button className={`nav-item ${demoMode ? "active" : ""}`} onClick={demoMode ? exitDemoMode : enterDemoMode}><Sparkles size={17} />{demoMode ? "Exit demo" : "Explore demo"}</button>
         <button className="nav-item" onClick={() => notify("Analytics will be available when call data is connected")}><BarChart3 size={17} />Analytics <span className="soon">SOON</span></button>
-        <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-icon"><Sparkles size={17} /></div><b>Make every call count.</b><p>Keep conversations human. Let the details stay organized.</p><button onClick={() => notify("You're using the Dialog AI demo workspace")}>Explore workspace <ArrowRight size={14} /></button></div><button className="profile" onClick={AUTH_CONFIGURED ? signOut : undefined} title={AUTH_CONFIGURED ? "Sign out" : "Demo profile"}><div className="profile-avatar">AL</div><span><b>{authSession?.user?.email || "Alex Morgan"}</b><small>{AUTH_CONFIGURED ? "Sign out" : "Sales representative"}</small></span><MoreHorizontal size={18} /></button></div>
+        <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-icon"><Sparkles size={17} /></div><b>Make every call count.</b><p>Keep conversations human. Let the details stay organized.</p><button onClick={() => notify("You're using the Dialog AI demo workspace")}>Explore workspace <ArrowRight size={14} /></button></div><button className="profile" onClick={demoMode ? exitDemoMode : AUTH_CONFIGURED ? signOut : undefined} title={demoMode ? "Exit demo" : AUTH_CONFIGURED ? "Sign out" : "Demo profile"}><div className="profile-avatar">AL</div><span><b>{authSession?.user?.email || "Alex Morgan"}</b><small>{AUTH_CONFIGURED ? "Sign out" : "Sales representative"}</small></span><MoreHorizontal size={18} /></button></div>
       </aside>
 
       <main className="main-area">
