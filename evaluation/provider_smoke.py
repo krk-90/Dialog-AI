@@ -28,28 +28,33 @@ def _safe_error_hint(body: bytes, headers=None) -> str:
 
     # Providers use different envelopes, so inspect a bounded set of nested objects.
     candidates = [parsed]
-    for key in ("error", "errors", "message"):
+    for key in ("error", "errors", "message", "msg", "error_description", "details"):
         value = parsed.get(key) if isinstance(parsed, dict) else None
         if isinstance(value, dict):
             candidates.append(value)
         elif isinstance(value, list):
             candidates.extend(item for item in value[:3] if isinstance(item, dict))
+        elif isinstance(value, str):
+            # Classify string-valued error fields without printing their contents.
+            candidates.append({"message": value})
 
     metadata = []
     messages = []
     for item in candidates:
-        for field in ("code", "type"):
+        for field in ("code", "type", "statusCode", "status_code"):
             value = item.get(field)
-            if isinstance(value, str) and value and len(value) <= 80:
+            if isinstance(value, (str, int)) and str(value) and len(str(value)) <= 80:
                 # Only allow simple identifier characters; avoid echoing arbitrary text.
+                value = str(value)
                 if all(char.isalnum() or char in "._-" for char in value):
                     metadata.append(f"{field}={value}")
-        value = item.get("message")
-        if isinstance(value, str):
-            messages.append(value.lower()[:500])
+        for field in ("message", "msg", "error_description", "details", "hint", "error"):
+            value = item.get(field)
+            if isinstance(value, str):
+                messages.append(value.lower()[:500])
 
     combined = " ".join(messages)
-    if any(term in combined for term in ("invalid api key", "invalid_api_key", "api key is invalid", "authentication failed")):
+    if any(term in combined for term in ("invalid api key", "invalid_api_key", "api key is invalid", "authentication failed", "no api key found", "invalid key")):
         category = "invalid_or_rejected_api_key"
     elif any(term in combined for term in ("model not found", "model is not available", "model access", "not authorized to use model", "permission to access model")):
         category = "model_unavailable_or_not_permitted"
