@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useDeepgramTranscription } from "./hooks/useDeepgramTranscription";
 import {
   Activity, ArrowDown, ArrowLeft, ArrowRight, AudioLines, BadgeCheck, BarChart3,
   Bell, BookOpen, BrainCircuit, Check, ChevronDown, CircleHelp, Clock3, Command,
@@ -8,8 +9,13 @@ import {
 } from "lucide-react";
 
 type Stage = { name: string; purpose: string; prompt: string; tip: string };
-type TranscriptLine = { id: number; speaker: "You" | "Prospect"; text: string; time: string };
+type TranscriptLine = { id: number; speaker: "You" | "Prospect" | "Voice 1" | "Voice 2" | "Unknown"; text: string; time: string };
 type CallRecord = { id: string; prospect: string; company: string; date: string; outcome: string; stage: number; duration: string };
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/$/, "");
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+const AUTH_CONFIGURED = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+type AuthSession = { access_token: string; refresh_token?: string; user?: { email?: string } };
 
 const stages: Stage[] = [
   { name: "Opening", purpose: "Earn a few seconds of attention", prompt: "Hi, this is Alex from Dialog. Have I caught you at an okay time for a quick question?", tip: "Be warm, direct, and brief. Avoid launching into a pitch." },
@@ -33,6 +39,18 @@ const seedHistory: CallRecord[] = [
 ];
 
 function App() {
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => {
+    try {
+      const raw = window.localStorage.getItem("dialog-ai-session");
+      return raw ? JSON.parse(raw) as AuthSession : null;
+    } catch { return null; }
+  });
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try { return window.localStorage.getItem("dialog-ai-theme") === "light" ? "light" : "dark"; }
     catch { return "dark"; }
@@ -43,18 +61,42 @@ function App() {
   const [company, setCompany] = useState("Meridian Software");
   const [callActive, setCallActive] = useState(true);
   const [micOn, setMicOn] = useState(false);
+  const [audioSource, setAudioSource] = useState<"microphone" | "system" | "both">("both");
   const [listening, setListening] = useState(false);
   const [responseType, setResponseType] = useState("Asked for context");
   const [notes, setNotes] = useState("");
   const [transcript, setTranscript] = useState(initialLines);
+  const [interimTranscript, setInterimTranscript] = useState<TranscriptLine | null>(null);
   const [draft, setDraft] = useState("");
+  const [coachLoading, setCoachLoading] = useState(false);
   const [suggestion, setSuggestion] = useState("They've offered a one-minute window. Give a concise reason for calling, then ask one focused question.");
-  const [history, setHistory] = useState(seedHistory);
+  const [history, setHistory] = useState<CallRecord[]>(() => {
+    try {
+      const stored = window.localStorage.getItem("dialog-ai-call-history");
+      return stored ? JSON.parse(stored) as CallRecord[] : seedHistory;
+    } catch {
+      return seedHistory;
+    }
+  });
   const [showEnd, setShowEnd] = useState(false);
   const [outcome, setOutcome] = useState("Meeting booked");
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const transcription = useDeepgramTranscription({ audioSource, onSegment: (segment) => {
+    const line: TranscriptLine = {
+      id: Date.now(),
+      speaker: segment.speaker,
+      text: segment.text,
+      time: new Date(segment.receivedAt).toLocaleTimeString([], { minute: "2-digit", second: "2-digit" }),
+    };
+    if (segment.isFinal) {
+      setTranscript((lines) => [...lines, line]);
+      setInterimTranscript(null);
+    } else {
+      setInterimTranscript(line);
+    }
+  } });
   const stage = stages[stageIndex];
   const progress = Math.round(((stageIndex + 1) / stages.length) * 100);
 
@@ -66,6 +108,44 @@ function App() {
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
   }, [transcript]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("dialog-ai-call-history", JSON.stringify(history));
+    } catch {
+      /* Call history remains available in memory for this session. */
+    }
+  }, [history]);
+
+  useEffect(() => {
+    if (!AUTH_CONFIGURED || !authSession?.access_token) return;
+    let cancelled = false;
+    fetch(API_BASE_URL + "/api/calls", { headers: { Authorization: "Bearer " + authSession.access_token } })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Cloud history could not be loaded");
+        return response.json();
+      })
+      .then((rows: Array<{ id: string; prospect: string; company: string; outcome: string; stage: number; duration: string; created_at: string }>) => {
+        if (cancelled || !Array.isArray(rows)) return;
+        setHistory(rows.map((row) => ({
+          id: row.id,
+          prospect: row.prospect,
+          company: row.company,
+          date: row.created_at ? new Date(row.created_at).toLocaleString() : "Saved call",
+          outcome: row.outcome,
+          stage: row.stage,
+          duration: row.duration,
+        })));
+      })
+      .catch(() => { if (!cancelled) setToast("Cloud history unavailable; showing local history."); });
+    return () => { cancelled = true; };
+  }, [authSession]);
+
+  useEffect(() => {
+    setListening(transcription.status === "listening");
+    setMicOn(transcription.status === "listening");
+    if (transcription.error) setToast(transcription.error);
+  }, [transcription.status, transcription.error]);
 
   useEffect(() => {
     if (!toast) return;
@@ -83,15 +163,39 @@ function App() {
     setDraft("");
   }
   async function toggleMic() {
-    if (listening) { setListening(false); setMicOn(false); notify("Microphone paused"); return; }
-    if (!navigator.mediaDevices?.getUserMedia) { notify("Microphone access isn't supported in this browser"); return; }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((track) => track.stop());
-      setMicOn(true); setListening(true);
-      notify("Microphone permission granted. Connect a speech-to-text provider to receive live words.");
-    } catch { notify("Microphone permission denied. You can still add transcript lines manually."); }
+    if (transcription.status === "listening" || transcription.status === "connecting") {
+      transcription.stop();
+      notify("Transcription stopped. Manual entry remains available.");
+      return;
+    }
+    await transcription.start();
   }
+  async function requestCoaching() {
+    setCoachLoading(true);
+    try {
+      const response = await fetch(API_BASE_URL + "/api/coaching/suggestion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stage: stage.name,
+          purpose: stage.purpose,
+          response_type: responseType,
+          notes,
+          transcript: transcript.slice(-8).map((line) => line.speaker + ": " + line.text),
+        }),
+      });
+      if (!response.ok) throw new Error("Coaching service is unavailable");
+      const data: { suggestion: string; source: "groq" | "fallback" } = await response.json();
+      setSuggestion(data.suggestion);
+      notify(data.source === "groq" ? "Coaching refreshed" : "Using built-in coaching guidance");
+    } catch {
+      setSuggestion(stage.tip);
+      notify("AI coaching unavailable. Showing built-in guidance instead.");
+    } finally {
+      setCoachLoading(false);
+    }
+  }
+
   function saveStage() {
     const line = notes.trim() ? `Stage note: ${notes.trim()}` : `Response marked: ${responseType}`;
     notify(`Stage ${stageIndex + 1} result saved in this demo session`);
@@ -102,19 +206,94 @@ function App() {
     setNotes("");
     void line;
   }
-  function finishCall() {
-    setHistory((items) => [{
+  async function finishCall() {
+    transcription.stop();
+    const newCall: CallRecord = {
       id: `DL-${Math.floor(2050 + Math.random() * 900)}`, prospect, company,
       date: "Just now", outcome, stage: stageIndex + 1, duration: "Live",
-    }, ...items]);
+    };
+    setHistory((items) => [newCall, ...items]);
+    if (AUTH_CONFIGURED && authSession?.access_token) {
+      try {
+        const response = await fetch(API_BASE_URL + "/api/calls", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + authSession.access_token },
+          body: JSON.stringify({
+            prospect, company, outcome, stage: stageIndex + 1, duration: "Live",
+            transcript: transcript.map(({ id, ...line }) => line),
+          }),
+        });
+        if (!response.ok) throw new Error("Cloud save failed");
+        notify("Call closed and synced to your cloud history");
+      } catch {
+        notify("Call saved locally; cloud sync failed");
+      }
+    } else {
+      notify("Call closed and saved to local call history");
+    }
     setShowEnd(false); setCallActive(false); setListening(false); setMicOn(false);
-    notify("Call closed and added to demo history");
     setPage("history");
   }
+
+  async function submitAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAuthBusy(true); setAuthError(""); setAuthNotice("");
+    try {
+      const path = authMode === "sign-up" ? "/auth/v1/signup" : "/auth/v1/token?grant_type=password";
+      const response = await fetch(SUPABASE_URL + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+        body: JSON.stringify({ email: authEmail.trim(), password: authPassword }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.msg || body.message || "Authentication failed.");
+      if (!body.access_token) {
+        setAuthNotice("Check your email to confirm your account, then sign in.");
+        return;
+      }
+      window.localStorage.setItem("dialog-ai-session", JSON.stringify(body));
+      setAuthSession(body as AuthSession);
+      setAuthPassword("");
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Authentication failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  function signOut() {
+    try { window.localStorage.removeItem("dialog-ai-session"); } catch { /* Continue with in-memory sign-out. */ }
+    setAuthSession(null);
+    notify("Signed out");
+  }
   function startNewCall() {
+    transcription.stop();
     setStageIndex(0); setCallActive(true); setListening(false); setMicOn(false);
-    setTranscript([]); setNotes(""); setResponseType("Asked for context"); setSuggestion("Start with a concise opening. AI suggestions will appear here when the backend is connected.");
+    setTranscript([]); setInterimTranscript(null); setNotes(""); setResponseType("Asked for context"); setSuggestion("Start with a concise opening. AI suggestions will appear here when the backend is connected.");
     setPage("workspace"); notify("New demo call ready");
+  }
+
+  if (AUTH_CONFIGURED && !authSession?.access_token) {
+    return (
+      <div className="auth-screen" data-theme={theme}>
+        <form className="auth-card" onSubmit={submitAuth}>
+          <div className="brand-mark"><AudioLines size={21} /></div>
+          <p className="eyebrow">DIALOG AI · CALL INTELLIGENCE</p>
+          <h1>{authMode === "sign-in" ? "Welcome back" : "Create your workspace"}</h1>
+          <p className="auth-description">Sign in to securely sync your call history across sessions.</p>
+          <label htmlFor="auth-email">Email</label>
+          <input id="auth-email" type="email" autoComplete="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} required />
+          <label htmlFor="auth-password">Password</label>
+          <input id="auth-password" type="password" autoComplete={authMode === "sign-in" ? "current-password" : "new-password"} minLength={8} value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required />
+          {authError && <p className="auth-error" role="alert">{authError}</p>}
+          {authNotice && <p className="auth-notice" role="status">{authNotice}</p>}
+          <button className="button button-primary auth-submit" type="submit" disabled={authBusy}>{authBusy ? "Please wait…" : authMode === "sign-in" ? "Sign in" : "Create account"}</button>
+          <button className="auth-toggle" type="button" onClick={() => { setAuthMode((mode) => mode === "sign-in" ? "sign-up" : "sign-in"); setAuthError(""); setAuthNotice(""); }}>
+            {authMode === "sign-in" ? "New here? Create an account" : "Already registered? Sign in"}
+          </button>
+        </form>
+      </div>
+    );
   }
 
   return (
@@ -126,7 +305,7 @@ function App() {
         <button className={`nav-item ${page === "workspace" ? "active" : ""}`} onClick={() => setPage("workspace")}><LayoutDashboard size={17} />Live call <span className="nav-live"><i />LIVE</span></button>
         <button className={`nav-item ${page === "history" ? "active" : ""}`} onClick={() => setPage("history")}><History size={17} />Call history</button>
         <button className="nav-item" onClick={() => notify("Analytics will be available when call data is connected")}><BarChart3 size={17} />Analytics <span className="soon">SOON</span></button>
-        <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-icon"><Sparkles size={17} /></div><b>Make every call count.</b><p>Keep conversations human. Let the details stay organized.</p><button onClick={() => notify("You're using the Dialog AI demo workspace")}>Explore workspace <ArrowRight size={14} /></button></div><button className="profile"><div className="profile-avatar">AL</div><span><b>Alex Morgan</b><small>Sales representative</small></span><MoreHorizontal size={18} /></button></div>
+        <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-icon"><Sparkles size={17} /></div><b>Make every call count.</b><p>Keep conversations human. Let the details stay organized.</p><button onClick={() => notify("You're using the Dialog AI demo workspace")}>Explore workspace <ArrowRight size={14} /></button></div><button className="profile" onClick={AUTH_CONFIGURED ? signOut : undefined} title={AUTH_CONFIGURED ? "Sign out" : "Demo profile"}><div className="profile-avatar">AL</div><span><b>{authSession?.user?.email || "Alex Morgan"}</b><small>{AUTH_CONFIGURED ? "Sign out" : "Sales representative"}</small></span><MoreHorizontal size={18} /></button></div>
       </aside>
 
       <main className="main-area">
@@ -139,7 +318,7 @@ function App() {
             <section className="call-overview panel">
               <div className="prospect-block"><div className="prospect-avatar">{prospect.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div className="prospect-details"><div className="prospect-name">{prospect}<span className="verified"><BadgeCheck size={14} /></span></div><div className="company-line">{company}<span className="meta-dot" />Outbound prospect</div><div className="call-meta"><span><Clock3 size={13} />00:04:32</span><span><Activity size={13} />{listening ? "Listening" : "Audio source not connected"}</span></div></div></div>
               <div className="overview-divider" /><div className="call-progress"><div className="progress-label"><span>Conversation progress</span><b>{stageIndex + 1} <small>/ 8 stages</small></b></div><div className="progress-track"><div style={{ width: `${progress}%` }} /></div><div className="progress-foot"><span>{stage.name}</span><span>{progress}% complete</span></div></div>
-              <div className="overview-controls"><button className={`control-button ${micOn ? "control-active" : ""}`} onClick={toggleMic}>{micOn ? <Mic size={16} /> : <MicOff size={16} />}{micOn ? "Mic enabled" : "Enable mic"}</button><button className="end-call" onClick={() => setShowEnd(true)} disabled={!callActive}><PhoneOff size={15} />End call</button></div>
+              <div className="overview-controls"><label className="audio-source-control"><Headphones size={15} /><span className="sr-only">Audio source</span><select aria-label="Audio source" value={audioSource} onChange={(event) => setAudioSource(event.target.value as "microphone" | "system" | "both")} disabled={micOn}><option value="microphone">Microphone</option><option value="system">Desktop audio</option><option value="both">Desktop + mic</option></select></label><button className={`control-button ${micOn ? "control-active" : ""}`} onClick={toggleMic}>{micOn ? <Mic size={16} /> : <MicOff size={16} />}{micOn ? "Stop transcription" : "Start transcription"}</button><button className="end-call" onClick={() => setShowEnd(true)} disabled={!callActive}><PhoneOff size={15} />End call</button></div>
             </section>
 
             <div className="workspace-grid">
@@ -147,8 +326,8 @@ function App() {
                 <section className="panel transcript-panel">
                   <div className="panel-heading"><div className="heading-icon purple"><AudioLines size={17} /></div><div><h2>Live transcript</h2><p>Capture the words that matter</p></div><span className={`live-pill ${listening ? "listening" : ""}`}><i />{listening ? "LISTENING" : "MANUAL MODE"}</span><button className="icon-button small" aria-label="Transcript help" onClick={() => notify("Live speech-to-text needs a provider connection on the backend")}><CircleHelp size={16} /></button></div>
                   <div className="transcript-feed" ref={transcriptRef}>
-                    {transcript.length === 0 && <div className="empty-transcript"><AudioLines size={26} /><b>Conversation starts here</b><span>Use the composer below to add a speaker turn.</span></div>}
-                    {transcript.map((line) => <div className={`transcript-line ${line.speaker === "Prospect" ? "prospect-line" : ""}`} key={line.id}><div className={`speaker-avatar ${line.speaker === "Prospect" ? "prospect-speaker" : ""}`}>{line.speaker === "You" ? "Y" : "P"}</div><div className="transcript-copy"><div className="transcript-meta"><b>{line.speaker === "You" ? "You" : prospect}</b><span>{line.time}</span></div><p>{line.text}</p></div></div>)}
+                    {transcript.length === 0 && !interimTranscript && <div className="empty-transcript"><AudioLines size={26} /><b>Conversation starts here</b><span>Use the composer below to add a speaker turn.</span></div>}
+                    {[...transcript, ...(interimTranscript ? [interimTranscript] : [])].map((line) => <div className={`transcript-line ${line.speaker === "Prospect" || line.speaker === "Voice 2" ? "prospect-line" : ""}`} key={line.id}><div className={`speaker-avatar ${line.speaker === "Prospect" || line.speaker === "Voice 2" ? "prospect-speaker" : ""}`}>{line.speaker === "You" ? "Y" : line.speaker === "Voice 1" ? "1" : line.speaker === "Voice 2" ? "2" : line.speaker === "Unknown" ? "?" : "P"}</div><div className="transcript-copy"><div className="transcript-meta"><b>{line.speaker === "You" ? "You" : line.speaker === "Prospect" ? prospect : line.speaker}</b><span>{line.time}{line === interimTranscript ? " · interim" : ""}</span></div><p>{line.text}</p></div></div>)}
                   </div>
                   <form className="transcript-composer" onSubmit={(e) => { e.preventDefault(); addTranscriptLine("Prospect", draft); }}>
                     <div className="composer-top"><span><span className="keyboard-dot" />Add transcript line</span><span>Manual entry</span></div>
@@ -169,7 +348,7 @@ function App() {
                   <div className="stage-context"><span className="context-label">STAGE {String(stageIndex + 1).padStart(2,"0")} <span>/ 08</span></span><h3>{stage.name}</h3><p>{stage.purpose}</p></div>
                   <div className="guidance-section"><div className="section-label"><span className="section-dot violet" />SUGGESTED LANGUAGE</div><blockquote>{stage.prompt}</blockquote><button className="copy-link" onClick={() => { void navigator.clipboard?.writeText(stage.prompt); notify("Suggested language copied"); }}>Copy suggestion <Command size={13} /></button></div>
                   <div className="tip-box"><div className="tip-icon"><Zap size={15} /></div><div><b>Coach's note</b><p>{stage.tip}</p></div></div>
-                  <div className="ai-insight"><div className="ai-insight-head"><div><Sparkles size={15} /><b>Conversation insight</b></div><span>DEMO</span></div><p>{suggestion}</p><div className="insight-foot"><span><Activity size={13} />Context-aware guidance</span><span>Illustrative</span></div></div>
+                  <div className="ai-insight"><div className="ai-insight-head"><div><Sparkles size={15} /><b>Conversation insight</b></div><span>{coachLoading ? "WORKING" : "LIVE"}</span></div><p>{suggestion}</p><div className="insight-foot"><span><Activity size={13} />Stage + recent context</span><button className="copy-link" onClick={() => void requestCoaching()} disabled={coachLoading}>{coachLoading ? "Thinking…" : "Refresh coaching"} <Sparkles size={13} /></button></div></div>
                   <div className="stage-actions"><button className="button button-secondary" onClick={() => setStageIndex(Math.max(0, stageIndex - 1))} disabled={stageIndex === 0}><ArrowLeft size={15} />Previous</button><button className="button button-primary" onClick={saveStage}>{stageIndex === 7 ? "Save stage" : "Save & continue"}<ArrowRight size={15} /></button></div>
                 </section>
 

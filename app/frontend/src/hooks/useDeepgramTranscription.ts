@@ -4,17 +4,21 @@ export type LiveTranscriptSegment = {
   id: string;
   text: string;
   isFinal: boolean;
-  speaker: "You" | "Prospect" | "Unknown";
+  speaker: "Voice 1" | "Voice 2" | "Unknown";
   receivedAt: number;
 };
 type Status = "idle" | "connecting" | "listening" | "error";
-type Options = { tokenEndpoint?: string; onSegment?: (segment: LiveTranscriptSegment) => void };
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+type AudioSource = "microphone" | "system" | "both";
+type Options = { tokenEndpoint?: string; onSegment?: (segment: LiveTranscriptSegment) => void; audioSource?: AudioSource };
 
-export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/deepgram-token", onSegment }: Options = {}) {
+export function useDeepgramTranscription({ tokenEndpoint = `${API_BASE_URL}/api/transcription/deepgram-token`, onSegment, audioSource = "microphone" }: Options = {}) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [segments, setSegments] = useState<LiveTranscriptSegment[]>([]);
   const mediaRef = useRef<MediaStream | null>(null);
+  const sourceStreamsRef = useRef<MediaStream[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const callbackRef = useRef(onSegment);
@@ -27,6 +31,10 @@ export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/d
     recorderRef.current = null;
     mediaRef.current?.getTracks().forEach((track) => track.stop());
     mediaRef.current = null;
+    sourceStreamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
+    sourceStreamsRef.current = [];
+    void audioContextRef.current?.close().catch(() => undefined);
+    audioContextRef.current = null;
     const socket = socketRef.current;
     socketRef.current = null;
     if (socket && socket.readyState < WebSocket.CLOSING) {
@@ -47,7 +55,35 @@ export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/d
       if (!tokenResponse.ok) throw new Error(tokenResponse.status === 404 ? "The secure transcription-token endpoint is not connected yet. Manual transcript entry remains available." : "Could not start secure transcription. Check backend configuration.");
       const tokenData: { access_token?: string } = await tokenResponse.json();
       if (!tokenData.access_token) throw new Error("The transcription service did not return a temporary access token.");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      let stream: MediaStream;
+      if (audioSource === "microphone") {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        sourceStreamsRef.current = [stream];
+      } else {
+        if (!navigator.mediaDevices.getDisplayMedia) {
+          throw new Error("System audio capture is not supported in this browser. Choose microphone mode or enter transcript manually.");
+        }
+        const systemStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        // The browser requires a video track for display capture; we do not record or transmit its video.
+        systemStream.getVideoTracks().forEach((track) => { track.stop(); systemStream.removeTrack(track); });
+        if (!systemStream.getAudioTracks().length) {
+          systemStream.getTracks().forEach((track) => track.stop());
+          throw new Error("No shared system audio was provided. Choose a browser tab/window with audio enabled, or use microphone mode.");
+        }
+        sourceStreamsRef.current = [systemStream];
+        if (audioSource === "system") {
+          stream = new MediaStream(systemStream.getAudioTracks());
+        } else {
+          const microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+          sourceStreamsRef.current.push(microphoneStream);
+          const context = new AudioContext();
+          audioContextRef.current = context;
+          const destination = context.createMediaStreamDestination();
+          context.createMediaStreamSource(systemStream).connect(destination);
+          context.createMediaStreamSource(microphoneStream).connect(destination);
+          stream = destination.stream;
+        }
+      }
       mediaRef.current = stream;
       const socket = new WebSocket("wss://api.deepgram.com/v1/listen?model=nova-2&language=en-US&smart_format=true&interim_results=true&diarize=true&utterance_end_ms=1000&vad_events=true", ["bearer", tokenData.access_token]);
       socketRef.current = socket;
@@ -57,7 +93,11 @@ export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/d
         socket.onerror = () => { window.clearTimeout(timeout); reject(new Error("Could not connect to the speech service. Check your connection or use manual mode.")); };
         socket.onclose = (event) => {
           window.clearTimeout(timeout);
-          if (activeRef.current && event.code !== 1000) setError("Speech connection closed. Manual transcript entry is still available.");
+          if (socket.readyState !== WebSocket.OPEN && !activeRef.current) {
+            reject(new Error("Speech connection closed before transcription started. Manual entry remains available."));
+          } else if (activeRef.current && event.code !== 1000) {
+            setError("Speech connection closed. Manual transcript entry is still available.");
+          }
         };
       });
       if (!stream.active || socket.readyState !== WebSocket.OPEN) throw new Error("Audio session ended before transcription could start.");
@@ -71,7 +111,7 @@ export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/d
           if (!text) return;
           const speakerIndex = alternative?.words?.[0]?.speaker;
           // Diarization identifies distinct voices, not their real-world identity.
-          const speaker: LiveTranscriptSegment["speaker"] = Number.isInteger(speakerIndex) ? (speakerIndex === 0 ? "You" : "Prospect") : "Unknown";
+          const speaker: LiveTranscriptSegment["speaker"] = Number.isInteger(speakerIndex) ? (speakerIndex === 0 ? "Voice 1" : "Voice 2") : "Unknown";
           const segment: LiveTranscriptSegment = { id: crypto.randomUUID(), text, isFinal: Boolean(payload.is_final), speaker, receivedAt: Date.now() };
           setSegments((previous) => {
             const next = segment.isFinal ? [...previous, segment] : [...previous.filter((item) => item.isFinal), segment];
@@ -85,6 +125,10 @@ export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/d
           activeRef.current = false;
           recorderRef.current?.stop();
           mediaRef.current?.getTracks().forEach((track) => track.stop());
+          sourceStreamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
+          sourceStreamsRef.current = [];
+          void audioContextRef.current?.close().catch(() => undefined);
+          audioContextRef.current = null;
           setStatus("error");
           setError("Speech connection closed. Switch to manual transcript entry or reconnect.");
         }
@@ -101,18 +145,24 @@ export function useDeepgramTranscription({ tokenEndpoint = "/api/transcription/d
     } catch (cause) {
       mediaRef.current?.getTracks().forEach((track) => track.stop());
       mediaRef.current = null;
+      sourceStreamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
+      sourceStreamsRef.current = [];
+      void audioContextRef.current?.close().catch(() => undefined);
+      audioContextRef.current = null;
       socketRef.current?.close();
       socketRef.current = null;
       activeRef.current = false;
       setStatus("error");
       setError(cause instanceof Error ? cause.message : "Transcription could not start. Use manual mode.");
     }
-  }, [tokenEndpoint]);
+  }, [audioSource, tokenEndpoint]);
 
   useEffect(() => () => {
     activeRef.current = false;
     recorderRef.current?.stop();
     mediaRef.current?.getTracks().forEach((track) => track.stop());
+    sourceStreamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
+    void audioContextRef.current?.close().catch(() => undefined);
     socketRef.current?.close();
   }, []);
 
