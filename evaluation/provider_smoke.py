@@ -3,14 +3,39 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import urllib.error
 import urllib.request
 
 
-def call(name: str, url: str, *, method: str = "GET", headers: dict[str, str] | None = None, payload: dict | None = None) -> bool:
+def _safe_error_hint(body: bytes) -> str:
+    """Return only allow-listed error metadata, never raw provider response text."""
+    try:
+        parsed = json.loads(body)
+    except (ValueError, TypeError):
+        return ""
+    error = parsed.get("error", parsed)
+    if not isinstance(error, dict):
+        return ""
+    parts = []
+    for field in ("code", "type"):
+        value = error.get(field)
+        if isinstance(value, str) and value and len(value) <= 100:
+            parts.append(f"{field}={value}")
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def call(
+    name: str,
+    url: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    payload: dict | None = None,
+    validate_json_field: str | None = None,
+) -> bool:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    body = b""
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
             code = response.status
@@ -22,18 +47,16 @@ def call(name: str, url: str, *, method: str = "GET", headers: dict[str, str] | 
         return False
 
     ok = 200 <= code < 300
-    if ok and name == "Groq chat completion":
+    if ok and validate_json_field:
         try:
             parsed = json.loads(body)
-            ok = bool(parsed.get("choices", [{}])[0].get("message", {}).get("content", "").strip())
-        except (ValueError, IndexError, AttributeError):
-            ok = False
-    if ok and name == "Deepgram temporary key":
-        try:
-            ok = bool(json.loads(body).get("key"))
+            ok = bool(parsed.get(validate_json_field))
         except (ValueError, AttributeError):
             ok = False
-    print(f'{"PASS" if ok else "FAIL"} {name}: HTTP {code}')
+
+    status = "PASS" if ok else "FAIL"
+    hint = "" if ok else _safe_error_hint(body)
+    print(f"{status} {name}: HTTP {code}{hint}")
     return ok
 
 
@@ -42,16 +65,19 @@ def main() -> int:
     deepgram = os.getenv("DEEPGRAM_API_KEY", "")
     supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_key = os.getenv("SUPABASE_ANON_KEY", "")
-    missing = [name for name, value in [
-        ("GROQ_API_KEY", groq),
-        ("DEEPGRAM_API_KEY", deepgram),
-        ("SUPABASE_URL", supabase_url),
-        ("SUPABASE_ANON_KEY", supabase_key),
-    ] if not value]
+    missing = [
+        name for name, value in [
+            ("GROQ_API_KEY", groq),
+            ("DEEPGRAM_API_KEY", deepgram),
+            ("SUPABASE_URL", supabase_url),
+            ("SUPABASE_ANON_KEY", supabase_key),
+        ] if not value
+    ]
     if missing:
         print("FAIL provider smoke: missing GitHub Actions secret(s): " + ", ".join(missing))
         return 1
 
+    model = os.getenv("GROQ_MODEL", "").strip() or "llama-3.3-70b-versatile"
     results = [
         call(
             "Groq chat completion",
@@ -59,23 +85,20 @@ def main() -> int:
             method="POST",
             headers={"Authorization": f"Bearer {groq}", "Content-Type": "application/json"},
             payload={
-                "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                "model": model,
                 "messages": [{"role": "user", "content": "Reply with the single word OK."}],
                 "max_tokens": 8,
                 "temperature": 0,
             },
+            validate_json_field="choices",
         ),
+        # Listing projects validates a Deepgram API key without creating a key or
+        # requiring key-management permissions/project IDs.
         call(
-            "Deepgram temporary key",
-            "https://api.deepgram.com/v1/keys",
-            method="POST",
+            "Deepgram API key",
+            "https://api.deepgram.com/v1/projects",
             headers={"Authorization": f"Token {deepgram}", "Content-Type": "application/json"},
-            payload={
-                "comment": "Dialog AI CI smoke test",
-                "scopes": ["usage:write"],
-                "tags": ["dialog-ai", "ci-smoke"],
-                "time_to_live_in_seconds": 60,
-            },
+            validate_json_field="projects",
         ),
         call(
             "Supabase REST API",
