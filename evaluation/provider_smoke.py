@@ -179,6 +179,16 @@ def _supabase_key_hint(url: str, key: str) -> str:
     except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
         return "claims_unavailable"
 
+def _supabase_rest_headers(key: str) -> dict[str, str]:
+    """Build Supabase REST headers for publishable and legacy JWT anon keys."""
+    headers = {"apikey": key, "Accept-Profile": "public"}
+    # Legacy anon keys are JWTs and are commonly sent in both headers.
+    # sb_publishable_* keys are not JWTs; never put those in Authorization.
+    if key.startswith("eyJ"):
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
 def main() -> int:
     groq = os.getenv("GROQ_API_KEY", "").strip()
     deepgram = os.getenv("DEEPGRAM_API_KEY", "").strip()
@@ -218,10 +228,10 @@ def main() -> int:
         ),
         call(
             "Supabase REST API",
-            supabase_url + "/rest/v1/",
-            # The anon/publishable key belongs in apikey. Authorization is for a
-            # user access token and should not be populated with a project API key.
-            headers={"apikey": supabase_key},
+            supabase_url + "/rest/v1/calls?select=id&limit=0",
+            # Probe a real table rather than only the OpenAPI root. This confirms
+            # the key can reach the configured public schema and table.
+            headers=_supabase_rest_headers(supabase_key),
         ),
     ]
     print(f"Provider smoke summary: {sum(results)}/{len(results)} providers passed.")
