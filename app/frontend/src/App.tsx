@@ -54,7 +54,14 @@ function App() {
   const [draft, setDraft] = useState("");
   const [coachLoading, setCoachLoading] = useState(false);
   const [suggestion, setSuggestion] = useState("They've offered a one-minute window. Give a concise reason for calling, then ask one focused question.");
-  const [history, setHistory] = useState(seedHistory);
+  const [history, setHistory] = useState<CallRecord[]>(() => {
+    try {
+      const stored = window.localStorage.getItem("dialog-ai-call-history");
+      return stored ? JSON.parse(stored) as CallRecord[] : seedHistory;
+    } catch {
+      return seedHistory;
+    }
+  });
   const [showEnd, setShowEnd] = useState(false);
   const [outcome, setOutcome] = useState("Meeting booked");
   const [toast, setToast] = useState("");
@@ -85,6 +92,14 @@ function App() {
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
   }, [transcript]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("dialog-ai-call-history", JSON.stringify(history));
+    } catch {
+      /* Call history remains available in memory for this session. */
+    }
+  }, [history]);
 
   useEffect(() => {
     setListening(transcription.status === "listening");
@@ -158,7 +173,7 @@ function App() {
       date: "Just now", outcome, stage: stageIndex + 1, duration: "Live",
     }, ...items]);
     setShowEnd(false); setCallActive(false); setListening(false); setMicOn(false);
-    notify("Call closed and added to demo history");
+    notify("Call closed and saved to local call history");
     setPage("history");
   }
   function startNewCall() {
