@@ -10,7 +10,7 @@ import {
 
 type Stage = { name: string; purpose: string; prompt: string; tip: string };
 type TranscriptLine = { id: number; speaker: "You" | "Prospect" | "Voice 1" | "Voice 2" | "Unknown"; text: string; time: string };
-type CallRecord = { id: string; prospect: string; company: string; date: string; outcome: string; stage: number; duration: string };
+type CallRecord = { id: string; prospect: string; company: string; date: string; outcome: string; stage: number; duration: string; transcript?: Array<{ speaker: string; text: string; time?: string }> };
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/$/, "");
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
@@ -29,9 +29,42 @@ const stages: Stage[] = [
 ];
 
 const initialLines: TranscriptLine[] = [];
-const seedHistory: CallRecord[] = [];
+const seedHistory: CallRecord[] = [
+  {
+    id: "demo-1003", prospect: "Jordan Lee", company: "Meridian Software",
+    date: "Oct 20, 2026, 10:42 AM", outcome: "Meeting booked", stage: 8, duration: "04:32",
+    transcript: [
+      { speaker: "You", text: "Thanks for taking a minute. How are you handling onboarding today?", time: "00:18" },
+      { speaker: "Prospect", text: "Mostly spreadsheets and a few manual checklists.", time: "00:34" },
+      { speaker: "You", text: "Where does that process tend to slow the team down?", time: "01:02" },
+      { speaker: "Prospect", text: "New hires keep asking the same setup questions.", time: "01:26" },
+      { speaker: "You", text: "A short walkthrough might help. Would Thursday work?", time: "03:48" },
+    ],
+  },
+  {
+    id: "demo-1002", prospect: "Priya Shah", company: "Northstar Labs",
+    date: "Oct 19, 2026, 3:15 PM", outcome: "Follow-up", stage: 5, duration: "03:08",
+    transcript: [
+      { speaker: "You", text: "I am calling to understand how your team manages handoffs.", time: "00:12" },
+      { speaker: "Prospect", text: "We have a process, but it is not consistent across teams.", time: "00:46" },
+      { speaker: "You", text: "What happens when a handoff gets missed?", time: "01:22" },
+      { speaker: "Prospect", text: "Usually we lose a day or two chasing context.", time: "02:10" },
+    ],
+  },
+  {
+    id: "demo-1001", prospect: "Marcus Chen", company: "Brightpath Systems",
+    date: "Oct 17, 2026, 11:05 AM", outcome: "Not interested", stage: 3, duration: "01:41",
+    transcript: [
+      { speaker: "You", text: "Have I caught you at an okay time for a quick question?", time: "00:08" },
+      { speaker: "Prospect", text: "I am in the middle of something. What is this about?", time: "00:19" },
+      { speaker: "You", text: "Understood. It may not be relevant right now, so I will keep it brief.", time: "00:34" },
+      { speaker: "Prospect", text: "We are not looking at anything like this currently.", time: "01:03" },
+    ],
+  },
+];
 
 function App() {
+  const [demoMode, setDemoMode] = useState(() => new URLSearchParams(window.location.search).get("demo") === "1");
   const [authSession, setAuthSession] = useState<AuthSession | null>(() => {
     try {
       const raw = window.localStorage.getItem("dialog-ai-session");
@@ -65,8 +98,8 @@ function App() {
   const [suggestion, setSuggestion] = useState("They've offered a one-minute window. Give a concise reason for calling, then ask one focused question.");
   const [history, setHistory] = useState<CallRecord[]>(() => {
     try {
-      const stored = window.localStorage.getItem("dialog-ai-call-history");
-      return stored ? JSON.parse(stored) as CallRecord[] : seedHistory;
+      const stored = window.localStorage.getItem(demoMode ? "dialog-ai-demo-history" : "dialog-ai-call-history");
+      return stored ? JSON.parse(stored) as CallRecord[] : (demoMode ? seedHistory : []);
     } catch {
       return seedHistory;
     }
@@ -76,6 +109,8 @@ function App() {
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const callStartedAtRef = useRef<number | null>(null);
+  const [selectedCall, setSelectedCall] = useState<CallRecord | null>(null);
   const transcription = useDeepgramTranscription({ audioSource, onSegment: (segment) => {
     const line: TranscriptLine = {
       id: Date.now(),
@@ -104,13 +139,14 @@ function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem("dialog-ai-call-history", JSON.stringify(history));
+      window.localStorage.setItem(demoMode ? "dialog-ai-demo-history" : "dialog-ai-call-history", JSON.stringify(history));
     } catch {
       /* Call history remains available in memory for this session. */
     }
-  }, [history]);
+  }, [history, demoMode]);
 
   useEffect(() => {
+    if (demoMode) return;
     if (AUTH_CONFIGURED && !authSession?.access_token) return;
     let cancelled = false;
     const headers: HeadersInit = authSession?.access_token
@@ -121,7 +157,7 @@ function App() {
         if (!response.ok) throw new Error("Call history could not be loaded");
         return response.json();
       })
-      .then((rows: Array<{ id: string; prospect: string; company: string; outcome: string; stage: number; duration: string; created_at: string }>) => {
+      .then((rows: Array<{ id: string; prospect: string; company: string; outcome: string; stage: number; duration: string; transcript?: Array<{ speaker: string; text: string; time?: string }>; created_at: string }>) => {
         if (cancelled || !Array.isArray(rows)) return;
         setHistory(rows.map((row) => ({
           id: row.id,
@@ -131,11 +167,12 @@ function App() {
           outcome: row.outcome,
           stage: row.stage,
           duration: row.duration,
+          transcript: row.transcript ?? [],
         })));
       })
       .catch(() => { if (!cancelled) setToast("Backend history unavailable; showing saved browser history."); });
     return () => { cancelled = true; };
-  }, [authSession]);
+  }, [authSession, demoMode]);
 
   useEffect(() => {
     setListening(transcription.status === "listening");
@@ -209,29 +246,49 @@ function App() {
       return;
     }
     transcription.stop();
-    const newCall: CallRecord = {
-      id: `DL-${Math.floor(2050 + Math.random() * 900)}`, prospect, company,
-      date: "Just now", outcome, stage: stageIndex + 1, duration: "Live",
+    const elapsedSeconds = callStartedAtRef.current === null
+      ? 0
+      : Math.max(0, Math.floor((Date.now() - callStartedAtRef.current) / 1000));
+    const duration = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
+    const transcriptLines = transcript.map(({ id, ...line }) => line);
+    const localCall: CallRecord = {
+      id: demoMode ? `demo-${crypto.randomUUID()}` : `local-${crypto.randomUUID()}`,
+      prospect: prospect.trim(), company: company.trim(), date: new Date().toLocaleString(),
+      outcome, stage: stageIndex + 1, duration, transcript: transcriptLines,
     };
-    setHistory((items) => [newCall, ...items]);
-    try {
-      const headers: HeadersInit = {
-        "Content-Type": "application/json",
-        ...(authSession?.access_token ? { Authorization: "Bearer " + authSession.access_token } : {}),
-      };
-      const response = await fetch(API_BASE_URL + "/api/calls", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          prospect, company, outcome, stage: stageIndex + 1, duration: "",
-          transcript: transcript.map(({ id, ...line }) => line),
-        }),
-      });
-      if (!response.ok) throw new Error("Backend save failed");
-      notify(AUTH_CONFIGURED ? "Call saved to cloud history" : "Call saved to backend database");
-    } catch {
-      notify("Backend save failed. This call remains in browser memory for now.");
+
+    if (demoMode) {
+      setHistory((items) => [localCall, ...items]);
+      notify("Demo call saved to this browser only");
+    } else {
+      try {
+        const headers: HeadersInit = {
+          "Content-Type": "application/json",
+          ...(authSession?.access_token ? { Authorization: "Bearer " + authSession.access_token } : {}),
+        };
+        const response = await fetch(API_BASE_URL + "/api/calls", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            prospect: localCall.prospect, company: localCall.company, outcome,
+            stage: stageIndex + 1, duration,
+            transcript: transcriptLines,
+          }),
+        });
+        if (!response.ok) throw new Error("Backend save failed");
+        const saved = await response.json() as { id?: string; created_at?: string };
+        setHistory((items) => [{
+          ...localCall,
+          id: saved.id ?? localCall.id,
+          date: saved.created_at ? new Date(saved.created_at).toLocaleString() : localCall.date,
+        }, ...items]);
+        notify(AUTH_CONFIGURED ? "Call saved to your cloud history" : "Call saved to backend history");
+      } catch {
+        setHistory((items) => [localCall, ...items]);
+        notify("Backend unavailable. Saved this call in browser history instead.");
+      }
     }
+    callStartedAtRef.current = null;
     setShowEnd(false); setCallActive(false); setListening(false); setMicOn(false);
     setPage("history");
   }
@@ -265,17 +322,41 @@ function App() {
   function signOut() {
     try { window.localStorage.removeItem("dialog-ai-session"); } catch { /* Continue with in-memory sign-out. */ }
     setAuthSession(null);
+    setDemoMode(false);
     notify("Signed out");
+  }
+  function exitDemoMode() {
+    setDemoMode(false);
+    try {
+      const stored = window.localStorage.getItem("dialog-ai-call-history");
+      setHistory(stored ? JSON.parse(stored) as CallRecord[] : []);
+    } catch { setHistory([]); }
+    setPage("workspace");
+    notify("Returned to your workspace");
+  }
+  function enterDemoMode() {
+    setDemoMode(true);
+    setHistory(() => {
+      try {
+        const stored = window.localStorage.getItem("dialog-ai-demo-history");
+        return stored ? JSON.parse(stored) as CallRecord[] : seedHistory;
+      } catch { return seedHistory; }
+    });
+    setAuthError("");
+    setAuthNotice("");
+    setPage("history");
+    notify("Demo workspace opened. Sample data stays in this browser.");
   }
   function startNewCall() {
     transcription.stop();
+    callStartedAtRef.current = Date.now();
     setProspect(""); setCompany("");
     setStageIndex(0); setCallActive(true); setListening(false); setMicOn(false);
     setTranscript([]); setInterimTranscript(null); setNotes(""); setResponseType("Asked for context"); setSuggestion("Start with a concise opening. AI suggestions will appear here when the backend is connected.");
     setPage("workspace"); notify("New demo call ready");
   }
 
-  if (AUTH_CONFIGURED && !authSession?.access_token) {
+  if (AUTH_CONFIGURED && !authSession?.access_token && !demoMode) {
     return (
       <div className="auth-screen" data-theme={theme}>
         <form className="auth-card" onSubmit={submitAuth}>
@@ -293,6 +374,7 @@ function App() {
           <button className="auth-toggle" type="button" onClick={() => { setAuthMode((mode) => mode === "sign-in" ? "sign-up" : "sign-in"); setAuthError(""); setAuthNotice(""); }}>
             {authMode === "sign-in" ? "New here? Create an account" : "Already registered? Sign in"}
           </button>
+          <button className="auth-toggle demo-entry" type="button" onClick={enterDemoMode}>Explore demo workspace · no account needed</button>
         </form>
       </div>
     );
@@ -302,16 +384,17 @@ function App() {
     <div className="app-shell" data-theme={theme}>
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark"><AudioLines size={21} /></div><div><strong>dialog<span>ai</span></strong><small>CALL INTELLIGENCE</small></div></div>
-        <div className="workspace-switch"><div className="workspace-avatar">S</div><span><b>Personal workspace</b><small>Local call history</small></span></div>
+        <div className="workspace-switch"><div className="workspace-avatar">{demoMode ? "D" : "S"}</div><span><b>{demoMode ? "Demo workspace" : "Personal workspace"}</b><small>{demoMode ? "Sample data · browser only" : AUTH_CONFIGURED ? "Synced call history" : "Local call history"}</small></span></div>
         <div className="nav-label">WORKSPACE</div>
         <button className={`nav-item ${page === "workspace" ? "active" : ""}`} onClick={() => setPage("workspace")}><LayoutDashboard size={17} />Live call <span className="nav-live"><i />LIVE</span></button>
         <button className={`nav-item ${page === "history" ? "active" : ""}`} onClick={() => setPage("history")}><History size={17} />Call history</button>
+        <button className={`nav-item ${demoMode ? "active" : ""}`} onClick={demoMode ? exitDemoMode : enterDemoMode}><Sparkles size={17} />{demoMode ? "Exit demo" : "Explore demo"}</button>
         <button className="nav-item" onClick={() => notify("Analytics will be available when call data is connected")}><BarChart3 size={17} />Analytics <span className="soon">SOON</span></button>
-        <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-icon"><Sparkles size={17} /></div><b>Make every call count.</b><p>Keep conversations human. Let the details stay organized.</p><button onClick={() => notify("You're using the Dialog AI demo workspace")}>Explore workspace <ArrowRight size={14} /></button></div><button className="profile" onClick={AUTH_CONFIGURED ? signOut : undefined} title={AUTH_CONFIGURED ? "Sign out" : "Demo profile"}><div className="profile-avatar">AL</div><span><b>{authSession?.user?.email || "Alex Morgan"}</b><small>{AUTH_CONFIGURED ? "Sign out" : "Sales representative"}</small></span><MoreHorizontal size={18} /></button></div>
+        <div className="sidebar-bottom"><div className="upgrade-card"><div className="upgrade-icon"><Sparkles size={17} /></div><b>Make every call count.</b><p>Keep conversations human. Let the details stay organized.</p><button onClick={() => notify("You're using the Dialog AI demo workspace")}>Explore workspace <ArrowRight size={14} /></button></div><button className="profile" onClick={demoMode ? exitDemoMode : AUTH_CONFIGURED ? signOut : undefined} title={demoMode ? "Exit demo" : AUTH_CONFIGURED ? "Sign out" : "Demo profile"}><div className="profile-avatar">AL</div><span><b>{authSession?.user?.email || "Alex Morgan"}</b><small>{AUTH_CONFIGURED ? "Sign out" : "Sales representative"}</small></span><MoreHorizontal size={18} /></button></div>
       </aside>
 
       <main className="main-area">
-        <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="slash">/</span><b>{page === "workspace" ? "Live call" : "Call history"}</b></div><div className="top-actions"><div className="system-status"><span className="status-dot" />Local workspace</div><button className="icon-button" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button><button className="icon-button" aria-label="Notifications" onClick={() => notify("You're all caught up")}><Bell size={17} /></button><div className="top-avatar">AM</div></div></header>
+        <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="slash">/</span><b>{page === "workspace" ? "Live call" : "Call history"}</b></div><div className="top-actions"><div className="system-status"><span className="status-dot" />{demoMode ? "Demo workspace" : AUTH_CONFIGURED ? "Account workspace" : "Local workspace"}</div><button className="icon-button" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button><button className="icon-button" aria-label="Notifications" onClick={() => notify("You're all caught up")}><Bell size={17} /></button><div className="top-avatar">AM</div></div></header>
 
         {page === "workspace" ? (
           <div className="page-content">
@@ -371,7 +454,7 @@ function App() {
             <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" />YOUR CONVERSATIONS</div><h1>Call history</h1><p>Review outcomes, learn from conversations, and pick up the next step.</p></div><button className="button button-primary" onClick={startNewCall}><Plus size={16} />Start a call</button></div>
             <div className="history-metrics"><div className="metric-card"><span>Total calls</span><b>{history.length}</b><small><TrendingUp size={13} />Saved calls</small></div><div className="metric-card"><span>Meetings booked</span><b>{history.filter((x) => x.outcome === "Meeting booked").length}</b><small><Target size={13} />Meetings booked</small></div><div className="metric-card"><span>Avg. call duration</span><b>—</b><small><Clock3 size={13} />Duration not captured yet</small></div><div className="metric-card"><span>Avg. stage reached</span><b>{(history.reduce((n,x) => n + x.stage,0) / Math.max(1,history.length)).toFixed(1)}<small>/8</small></b><small><BarChart3 size={13} />Conversation depth</small></div></div>
             <section className="panel history-table-panel"><div className="history-toolbar"><div><h2>Recent calls</h2><p>Latest activity across your workspace</p></div><div className="history-filters"><label className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search prospect or company" /></label><button className="button button-secondary" onClick={() => notify("Showing all call outcomes")}><Settings2 size={15} />Filters</button></div></div>
-              <div className="table-wrap"><table><thead><tr><th>PROSPECT</th><th>DATE</th><th>FURTHEST STAGE</th><th>DURATION</th><th>OUTCOME</th><th /></tr></thead><tbody>{filteredHistory.map((call) => <tr key={call.id}><td><div className="table-person"><div className="table-avatar">{call.prospect.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div><b>{call.prospect}</b><small>{call.company}</small></div></div></td><td>{call.date}</td><td><div className="stage-cell"><div className="mini-progress"><span style={{ width: `${call.stage / 8 * 100}%` }} /></div><span>{call.stage}/8</span></div></td><td>{call.duration}</td><td><span className={`outcome-pill ${call.outcome === "Meeting booked" ? "positive" : call.outcome === "Not a fit" ? "neutral" : "followup"}`}><i />{call.outcome}</span></td><td><button className="icon-button small" aria-label={`View ${call.prospect}`} onClick={() => notify(`${call.prospect}: reached stage ${call.stage} of 8`)}><ArrowRight size={15} /></button></td></tr>)}</tbody></table>{filteredHistory.length === 0 && <div className="no-results">No calls match that search.</div>}</div>
+              <div className="table-wrap"><table><thead><tr><th>PROSPECT</th><th>DATE</th><th>FURTHEST STAGE</th><th>DURATION</th><th>OUTCOME</th><th /></tr></thead><tbody>{filteredHistory.map((call) => <tr key={call.id}><td><div className="table-person"><div className="table-avatar">{call.prospect.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div><b>{call.prospect}</b><small>{call.company}</small></div></div></td><td>{call.date}</td><td><div className="stage-cell"><div className="mini-progress"><span style={{ width: `${call.stage / 8 * 100}%` }} /></div><span>{call.stage}/8</span></div></td><td>{call.duration}</td><td><span className={`outcome-pill ${call.outcome === "Meeting booked" ? "positive" : call.outcome === "Not a fit" ? "neutral" : "followup"}`}><i />{call.outcome}</span></td><td><button className="icon-button small" aria-label={`View ${call.prospect}`} onClick={() => setSelectedCall(call)}><ArrowRight size={15} /></button></td></tr>)}</tbody></table>{filteredHistory.length === 0 && <div className="no-results">No calls match that search.</div>}</div>
               <div className="table-footer"><span>Showing {filteredHistory.length} recent calls</span><span>Furthest stage reached is saved per call</span></div>
             </section>
           </div>
@@ -379,6 +462,7 @@ function App() {
       </main>
 
       {toast && <div className="toast"><Check size={16} />{toast}<button aria-label="Dismiss notification" onClick={() => setToast("")}><X size={14} /></button></div>}
+      {selectedCall && <div className="modal-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelectedCall(null); }}><section className="end-modal call-detail-modal" role="dialog" aria-modal="true" aria-labelledby="call-detail-title"><button className="modal-close icon-button" onClick={() => setSelectedCall(null)} aria-label="Close"><X size={17} /></button><div className="modal-symbol"><History size={22} /></div><h2 id="call-detail-title">{selectedCall.prospect}</h2><p>{selectedCall.company || "No company recorded"} · {selectedCall.date}</p><div className="modal-summary"><span>Outcome</span><b>{selectedCall.outcome}</b><span>Furthest stage</span><b>{selectedCall.stage} of 8</b><span>Duration</span><b>{selectedCall.duration || "Not recorded"}</b></div><div className="saved-transcript"><h3>Saved transcript</h3>{selectedCall.transcript?.length ? selectedCall.transcript.map((line, index) => <div className="saved-transcript-line" key={index}><b>{line.speaker}</b><span>{line.time || ""}</span><p>{line.text}</p></div>) : <p>No transcript was saved for this call.</p>}</div><div className="modal-actions"><button className="button button-secondary" onClick={() => setSelectedCall(null)}>Close</button></div></section></div>}
       {showEnd && <div className="modal-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowEnd(false); }}><section className="end-modal" role="dialog" aria-modal="true" aria-labelledby="end-title"><button className="modal-close icon-button" onClick={() => setShowEnd(false)} aria-label="Close"><X size={17} /></button><div className="modal-symbol"><PhoneOff size={22} /></div><h2 id="end-title">Wrap up this call</h2><p>Capture the outcome before closing the session with {prospect}.</p><label className="field-label" htmlFor="outcome">Call outcome</label><select id="outcome" value={outcome} onChange={(e) => setOutcome(e.target.value)}><option>Meeting booked</option><option>Follow-up</option><option>Not interested</option><option>Not a fit</option><option>No answer</option></select><div className="modal-summary"><span>Furthest stage reached</span><b>{stageIndex + 1} of 8 · {stage.name}</b></div><div className="modal-actions"><button className="button button-secondary" onClick={() => setShowEnd(false)}>Keep calling</button><button className="button button-danger" onClick={finishCall}><PhoneOff size={15} />Close call</button></div></section></div>}
     </div>
   );
