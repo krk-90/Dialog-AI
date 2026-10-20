@@ -32,7 +32,8 @@ FastAPI
   └── POST /api/coaching/suggestion
           │
           ├── Deepgram API (streaming transcription)
-          └── Groq API (on-demand coaching)
+          ├── Groq API (on-demand coaching)
+          └── Supabase REST (user-scoped call history with RLS)
 ```
 
 ## Run locally
@@ -80,14 +81,28 @@ Backend `.env`:
 | `GROQ_API_KEY` | No | Server-side key for AI coaching; built-in fallback works without it |
 | `GROQ_MODEL` | No | Groq model name; defaults to `llama-3.3-70b-versatile` |
 | `FRONTEND_ORIGINS` | For deployment | Comma-separated allowed frontend origins |
+| `SUPABASE_URL` | Optional | Supabase project URL for cloud call history |
+| `SUPABASE_ANON_KEY` | Optional | Supabase public anon key used server-side with the signed-in user JWT; never use a service-role key |
 
 Frontend `app/frontend/.env`:
 
 | Variable | Purpose |
 | --- | --- |
 | `VITE_API_BASE_URL` | Leave blank for the local Vite proxy; set to the backend origin for a separately deployed frontend |
+| `VITE_SUPABASE_URL` | Optional | Supabase project URL; enables sign-in and cloud call history |
+| `VITE_SUPABASE_ANON_KEY` | Optional | Supabase public anon key; safe for browser use when RLS is enabled |
 
 **Never put Deepgram or Groq secrets in frontend variables or commit them to Git.** For Render, set backend secrets in the service environment. For a separately hosted frontend, set `VITE_API_BASE_URL` and configure `FRONTEND_ORIGINS` to match the deployed origin.
+
+## Supabase cloud history
+
+1. Create a Supabase project.
+2. Run [`supabase/schema.sql`](supabase/schema.sql) in the Supabase SQL editor to create the calls table and row-level security policies.
+3. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the backend environment.
+4. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the frontend environment and rebuild/redeploy it.
+5. Enable the desired email sign-up / confirmation settings in Supabase Auth.
+
+When Supabase is configured, the UI requires sign-in, loads the signed-in user's call history, and saves completed calls through the backend. Supabase RLS scopes rows to `auth.uid()`; the backend never accepts a client-supplied `user_id`. Without Supabase configuration, the app remains usable in local-history mode.
 
 ## Tests and evaluation
 
@@ -118,8 +133,8 @@ The smoke report records pass rate and endpoint latency for health, coaching, an
 - Desktop/tab capture requires browser permission and the user to select a share target with audio enabled. The app does not silently capture arbitrary system audio.
 - Speaker labels are provisional diarization labels such as Voice 1 / Voice 2. They do not reliably identify which speaker is the salesperson.
 - AI coaching is requested when the user clicks **Refresh coaching**; transcript text is not automatically streamed to Groq.
-- Call history is currently stored in the browser's local storage. It is not synced between devices and is not cloud persistence.
-- Supabase authentication and cloud call-history persistence are not wired into this milestone.
+- Without Supabase configuration, call history is stored in the browser only and is not synced between devices.
+- Cloud history depends on applying the SQL schema, enabling Supabase Auth, and setting the matching environment variables.
 - Add authentication, authorization, rate limiting, consent UX, retention controls, and privacy review before exposing this app to public or production call data.
 - A successful build or smoke test does not verify provider credentials or a live deployed call. Test those in the configured environment.
 
