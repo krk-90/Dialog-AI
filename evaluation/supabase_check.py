@@ -32,15 +32,18 @@ def _safe_text(value: object, secrets: tuple[str, ...], limit: int = 240) -> str
 
 
 def _request(url: str, key: str, timeout: int = 12) -> tuple[int, bytes]:
-    request = urllib.request.Request(
-        url,
-        headers={
-            "apikey": key,
-            "Accept": "application/json",
-            "User-Agent": "Dialog-AI-supabase-check/1.0",
-        },
-        method="GET",
-    )
+    headers = {
+        "apikey": key,
+        "Accept": "application/json",
+        "User-Agent": "Dialog-AI-supabase-check/1.0",
+    }
+    if key.startswith("eyJ"):
+        # Legacy anon JWTs are accepted in both headers by Supabase clients.
+        # Do not send sb_publishable_* values as Bearer tokens.
+        headers["Authorization"] = f"Bearer {key}"
+    if "/rest/v1/" in url:
+        headers["Accept-Profile"] = "public"
+    request = urllib.request.Request(url, headers=headers, method="GET")
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status, response.read(16_384)
@@ -102,7 +105,7 @@ def main() -> int:
     print(f"Key format: {'publishable' if key.startswith('sb_publishable_') else 'legacy JWT-like' if key.startswith('eyJ') else 'unknown'}")
     secrets = (key, raw_url)
     checks = [
-        _check("REST API gateway", base + "/rest/v1/", key, secrets),
+        _check("REST API calls-table query", base + "/rest/v1/calls?select=id&limit=0", key, secrets),
         _check("Auth service", base + "/auth/v1/health", key, secrets),
     ]
     print(f"Supabase connectivity: {sum(checks)}/{len(checks)} checks passed (project ref: {project_ref}).")
