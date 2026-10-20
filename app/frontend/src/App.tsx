@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";\nimport { useDeepgramTranscription } from "./hooks/useDeepgramTranscription";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeepgramTranscription } from "./hooks/useDeepgramTranscription";
 import {
   Activity, ArrowDown, ArrowLeft, ArrowRight, AudioLines, BadgeCheck, BarChart3,
   Bell, BookOpen, BrainCircuit, Check, ChevronDown, CircleHelp, Clock3, Command,
@@ -46,7 +47,8 @@ function App() {
   const [listening, setListening] = useState(false);
   const [responseType, setResponseType] = useState("Asked for context");
   const [notes, setNotes] = useState("");
-  const [transcript, setTranscript] = useState(initialLines);\n  const [interimTranscript, setInterimTranscript] = useState<TranscriptLine | null>(null);
+  const [transcript, setTranscript] = useState(initialLines);
+  const [interimTranscript, setInterimTranscript] = useState<TranscriptLine | null>(null);
   const [draft, setDraft] = useState("");
   const [suggestion, setSuggestion] = useState("They've offered a one-minute window. Give a concise reason for calling, then ask one focused question.");
   const [history, setHistory] = useState(seedHistory);
@@ -55,6 +57,20 @@ function App() {
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const transcription = useDeepgramTranscription({ onSegment: (segment) => {
+    const line: TranscriptLine = {
+      id: Date.now(),
+      speaker: segment.speaker,
+      text: segment.text,
+      time: new Date(segment.receivedAt).toLocaleTimeString([], { minute: "2-digit", second: "2-digit" }),
+    };
+    if (segment.isFinal) {
+      setTranscript((lines) => [...lines, line]);
+      setInterimTranscript(null);
+    } else {
+      setInterimTranscript(line);
+    }
+  } });
   const stage = stages[stageIndex];
   const progress = Math.round(((stageIndex + 1) / stages.length) * 100);
 
@@ -66,6 +82,12 @@ function App() {
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
   }, [transcript]);
+
+  useEffect(() => {
+    setListening(transcription.status === "listening");
+    setMicOn(transcription.status === "listening");
+    if (transcription.error) setToast(transcription.error);
+  }, [transcription.status, transcription.error]);
 
   useEffect(() => {
     if (!toast) return;
