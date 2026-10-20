@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useDeepgramTranscription } from "./hooks/useDeepgramTranscription";
 import {
   Activity, ArrowDown, ArrowLeft, ArrowRight, AudioLines, BadgeCheck, BarChart3,
@@ -235,7 +235,7 @@ function App() {
     setPage("history");
   }
 
-  async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
+  async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthBusy(true); setAuthError(""); setAuthNotice("");
     try {
