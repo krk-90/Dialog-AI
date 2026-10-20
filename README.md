@@ -81,7 +81,8 @@ Backend `.env`:
 | `GROQ_API_KEY` | No | Server-side key for AI coaching; built-in fallback works without it |
 | `GROQ_MODEL` | No | Groq model name; defaults to `llama-3.3-70b-versatile` |
 | `FRONTEND_ORIGINS` | For deployment | Comma-separated allowed frontend origins |
-| `DIALOG_AI_LOCAL_HISTORY` | No | Set `true` for unauthenticated local SQLite history; set `false` on public deployments |\n| `DIALOG_AI_DB_PATH` | No | Local SQLite file path; defaults to `data/dialog-ai.sqlite3` |
+| `DIALOG_AI_LOCAL_HISTORY` | No | Set `true` for unauthenticated local SQLite history; set `false` on public deployments |
+| `DIALOG_AI_DB_PATH` | No | Local SQLite file path; defaults to `data/dialog-ai.sqlite3` |
 | `SUPABASE_URL` | Optional | Supabase project URL for cloud call history; configure with the anon key to enable cloud mode |
 | `SUPABASE_ANON_KEY` | Optional | Supabase public anon key used server-side with the signed-in user JWT; never use a service-role key |
 
