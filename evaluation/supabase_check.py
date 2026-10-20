@@ -22,12 +22,12 @@ def _safe_text(value: object, secrets: tuple[str, ...], limit: int = 240) -> str
     """Bound and redact server-provided diagnostic text before printing it."""
     if not isinstance(value, str):
         return ""
-    text = value.replace("\\r", " ").replace("\\n", " ")
+    text = value.replace("\r", " ").replace("\n", " ")
     for secret in secrets:
         if secret:
             text = text.replace(secret, "[REDACTED]")
     text = re.sub(r"(?i)(sb_(?:publishable|secret)_[A-Za-z0-9_-]+)", "[REDACTED_KEY]", text)
-    text = re.sub(r"(?i)(eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)", "[REDACTED_TOKEN]", text)
+    text = re.sub(r"(?i)(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)", "[REDACTED_TOKEN]", text)
     return text[:limit]
 
 
