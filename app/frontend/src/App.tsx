@@ -97,14 +97,16 @@ function App() {
   const [coachLoading, setCoachLoading] = useState(false);
   const [suggestion, setSuggestion] = useState("They've offered a one-minute window. Give a concise reason for calling, then ask one focused question.");
   const [history, setHistory] = useState<CallRecord[]>(() => {
-    if (AUTH_CONFIGURED && !demoMode) return [];
+    if (!demoMode) return [];
     try {
-      const stored = window.localStorage.getItem(demoMode ? "dialog-ai-demo-history" : "dialog-ai-call-history");
-      return stored ? JSON.parse(stored) as CallRecord[] : (demoMode ? seedHistory : []);
+      const stored = window.localStorage.getItem("dialog-ai-demo-history");
+      return stored ? JSON.parse(stored) as CallRecord[] : seedHistory;
     } catch {
-      return demoMode ? seedHistory : [];
+      return seedHistory;
     }
   });
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
   const [showEnd, setShowEnd] = useState(false);
   const [outcome, setOutcome] = useState("Meeting booked");
   const [toast, setToast] = useState("");
