@@ -8,7 +8,8 @@ export type LiveTranscriptSegment = {
   receivedAt: number;
 };
 type Status = "idle" | "connecting" | "listening" | "error";
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\\/$/, "");\ntype Options = { tokenEndpoint?: string; onSegment?: (segment: LiveTranscriptSegment) => void };
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+type Options = { tokenEndpoint?: string; onSegment?: (segment: LiveTranscriptSegment) => void };
 
 export function useDeepgramTranscription({ tokenEndpoint = `${API_BASE_URL}/api/transcription/deepgram-token`, onSegment }: Options = {}) {
   const [status, setStatus] = useState<Status>("idle");
