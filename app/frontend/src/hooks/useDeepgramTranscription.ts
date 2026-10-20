@@ -125,6 +125,10 @@ export function useDeepgramTranscription({ tokenEndpoint = `${API_BASE_URL}/api/
           activeRef.current = false;
           recorderRef.current?.stop();
           mediaRef.current?.getTracks().forEach((track) => track.stop());
+          sourceStreamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
+          sourceStreamsRef.current = [];
+          void audioContextRef.current?.close().catch(() => undefined);
+          audioContextRef.current = null;
           setStatus("error");
           setError("Speech connection closed. Switch to manual transcript entry or reconnect.");
         }
@@ -141,6 +145,10 @@ export function useDeepgramTranscription({ tokenEndpoint = `${API_BASE_URL}/api/
     } catch (cause) {
       mediaRef.current?.getTracks().forEach((track) => track.stop());
       mediaRef.current = null;
+      sourceStreamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
+      sourceStreamsRef.current = [];
+      void audioContextRef.current?.close().catch(() => undefined);
+      audioContextRef.current = null;
       socketRef.current?.close();
       socketRef.current = null;
       activeRef.current = false;
