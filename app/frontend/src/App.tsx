@@ -28,15 +28,8 @@ const stages: Stage[] = [
   { name: "Close / next step", purpose: "Agree on a clear outcome", prompt: "Would a short follow-up next week be useful, or is there a better next step?", tip: "Be specific about the next action, owner, and timing." },
 ];
 
-const initialLines: TranscriptLine[] = [
-  { id: 1, speaker: "You", text: "Hi Jordan, this is Alex. Have I caught you at an okay time for a quick question?", time: "00:04" },
-  { id: 2, speaker: "Prospect", text: "I've got about a minute. What's this regarding?", time: "00:11" },
-];
-const seedHistory: CallRecord[] = [
-  { id: "DL-2048", prospect: "Priya Sharma", company: "Northstar Labs", date: "Today, 10:42 AM", outcome: "Meeting booked", stage: 8, duration: "06:24" },
-  { id: "DL-2047", prospect: "Marcus Chen", company: "Vertex Systems", date: "Today, 09:18 AM", outcome: "Follow-up", stage: 6, duration: "04:51" },
-  { id: "DL-2046", prospect: "Elena Rodriguez", company: "Brightline", date: "Yesterday", outcome: "Not a fit", stage: 4, duration: "03:12" },
-];
+const initialLines: TranscriptLine[] = [];
+const seedHistory: CallRecord[] = [];
 
 function App() {
   const [authSession, setAuthSession] = useState<AuthSession | null>(() => {
@@ -57,9 +50,9 @@ function App() {
   });
   const [page, setPage] = useState<"workspace" | "history">("workspace");
   const [stageIndex, setStageIndex] = useState(0);
-  const [prospect, setProspect] = useState("Jordan Lee");
-  const [company, setCompany] = useState("Meridian Software");
-  const [callActive, setCallActive] = useState(true);
+  const [prospect, setProspect] = useState("");
+  const [company, setCompany] = useState("");
+  const [callActive, setCallActive] = useState(false);
   const [micOn, setMicOn] = useState(false);
   const [audioSource, setAudioSource] = useState<"microphone" | "system" | "both">("both");
   const [listening, setListening] = useState(false);
@@ -118,11 +111,14 @@ function App() {
   }, [history]);
 
   useEffect(() => {
-    if (!AUTH_CONFIGURED || !authSession?.access_token) return;
+    if (AUTH_CONFIGURED && !authSession?.access_token) return;
     let cancelled = false;
-    fetch(API_BASE_URL + "/api/calls", { headers: { Authorization: "Bearer " + authSession.access_token } })
+    const headers: HeadersInit = authSession?.access_token
+      ? { Authorization: "Bearer " + authSession.access_token }
+      : {};
+    fetch(API_BASE_URL + "/api/calls", { headers })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Cloud history could not be loaded");
+        if (!response.ok) throw new Error("Call history could not be loaded");
         return response.json();
       })
       .then((rows: Array<{ id: string; prospect: string; company: string; outcome: string; stage: number; duration: string; created_at: string }>) => {
@@ -137,7 +133,7 @@ function App() {
           duration: row.duration,
         })));
       })
-      .catch(() => { if (!cancelled) setToast("Cloud history unavailable; showing local history."); });
+      .catch(() => { if (!cancelled) setToast("Backend history unavailable; showing saved browser history."); });
     return () => { cancelled = true; };
   }, [authSession]);
 
@@ -213,23 +209,23 @@ function App() {
       date: "Just now", outcome, stage: stageIndex + 1, duration: "Live",
     };
     setHistory((items) => [newCall, ...items]);
-    if (AUTH_CONFIGURED && authSession?.access_token) {
-      try {
-        const response = await fetch(API_BASE_URL + "/api/calls", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: "Bearer " + authSession.access_token },
-          body: JSON.stringify({
-            prospect, company, outcome, stage: stageIndex + 1, duration: "Live",
-            transcript: transcript.map(({ id, ...line }) => line),
-          }),
-        });
-        if (!response.ok) throw new Error("Cloud save failed");
-        notify("Call closed and synced to your cloud history");
-      } catch {
-        notify("Call saved locally; cloud sync failed");
-      }
-    } else {
-      notify("Call closed and saved to local call history");
+    try {
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+        ...(authSession?.access_token ? { Authorization: "Bearer " + authSession.access_token } : {}),
+      };
+      const response = await fetch(API_BASE_URL + "/api/calls", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          prospect, company, outcome, stage: stageIndex + 1, duration: "",
+          transcript: transcript.map(({ id, ...line }) => line),
+        }),
+      });
+      if (!response.ok) throw new Error("Backend save failed");
+      notify(AUTH_CONFIGURED ? "Call saved to cloud history" : "Call saved to backend database");
+    } catch {
+      notify("Backend save failed. This call remains in browser memory for now.");
     }
     setShowEnd(false); setCallActive(false); setListening(false); setMicOn(false);
     setPage("history");
@@ -300,7 +296,7 @@ function App() {
     <div className="app-shell" data-theme={theme}>
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark"><AudioLines size={21} /></div><div><strong>dialog<span>ai</span></strong><small>CALL INTELLIGENCE</small></div></div>
-        <button className="workspace-switch"><div className="workspace-avatar">S</div><span><b>Sales workspace</b><small>Growth team</small></span><ChevronDown size={15} /></button>
+        <div className="workspace-switch"><div className="workspace-avatar">S</div><span><b>Personal workspace</b><small>Local call history</small></span></div>
         <div className="nav-label">WORKSPACE</div>
         <button className={`nav-item ${page === "workspace" ? "active" : ""}`} onClick={() => setPage("workspace")}><LayoutDashboard size={17} />Live call <span className="nav-live"><i />LIVE</span></button>
         <button className={`nav-item ${page === "history" ? "active" : ""}`} onClick={() => setPage("history")}><History size={17} />Call history</button>
@@ -309,7 +305,7 @@ function App() {
       </aside>
 
       <main className="main-area">
-        <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="slash">/</span><b>{page === "workspace" ? "Live call" : "Call history"}</b></div><div className="top-actions"><div className="system-status"><span className="status-dot" />Demo mode · Offline-safe</div><button className="icon-button" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button><button className="icon-button" aria-label="Notifications" onClick={() => notify("You're all caught up")}><Bell size={17} /></button><div className="top-avatar">AM</div></div></header>
+        <header className="topbar"><div className="breadcrumbs"><span>Workspace</span><span className="slash">/</span><b>{page === "workspace" ? "Live call" : "Call history"}</b></div><div className="top-actions"><div className="system-status"><span className="status-dot" />Local workspace</div><button className="icon-button" aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>{theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}</button><button className="icon-button" aria-label="Notifications" onClick={() => notify("You're all caught up")}><Bell size={17} /></button><div className="top-avatar">AM</div></div></header>
 
         {page === "workspace" ? (
           <div className="page-content">
@@ -356,18 +352,18 @@ function App() {
                   <div className="panel-heading"><div className="heading-icon green"><Headphones size={17} /></div><div><h2>Prospect response</h2><p>Record what you heard</p></div></div>
                   <label className="field-label" htmlFor="response-type">Response type</label><div className="select-wrap"><select id="response-type" value={responseType} onChange={(e) => setResponseType(e.target.value)}><option>Asked for context</option><option>Interested</option><option>Busy / short on time</option><option>Raised an objection</option><option>Shared a pain point</option><option>Not interested</option><option>Requested follow-up</option><option>Other</option></select><ChevronDown size={15} /></div>
                   <label className="field-label" htmlFor="stage-notes">Exact words / stage notes</label><textarea id="stage-notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="“I've got about a minute. What's this regarding?”" />
-                  <div className="response-footer"><span><ShieldCheck size={13} />Saved to this demo session</span><span>{notes.length} chars</span></div>
+                  <div className="response-footer"><span><ShieldCheck size={13} />Notes are kept for this call</span><span>{notes.length} chars</span></div>
                 </section>
 
-                <section className="panel quick-stats"><div className="stat-item"><span><TrendingUp size={15} />Stages covered</span><b>{stageIndex + 1}<small>/8</small></b></div><div className="stat-item"><span><Waves size={15} />Transcript turns</span><b>{transcript.length}</b></div><div className="stat-item"><span><Zap size={15} />AI assist</span><b className="stat-ready">Demo</b></div></section>
+                <section className="panel quick-stats"><div className="stat-item"><span><TrendingUp size={15} />Stages covered</span><b>{stageIndex + 1}<small>/8</small></b></div><div className="stat-item"><span><Waves size={15} />Transcript turns</span><b>{transcript.length}</b></div><div className="stat-item"><span><Zap size={15} />AI assist</span><b className="stat-ready">On demand</b></div></section>
               </div>
             </div>
-            <div className="page-footnote"><span>Dialog AI <span className="meta-dot" /> Human-first call assistance</span><span>Demo workspace · Not connected to a live call provider</span></div>
+            <div className="page-footnote"><span>Dialog AI <span className="meta-dot" /> Human-first call assistance</span><span>Live audio requires a configured Deepgram key</span></div>
           </div>
         ) : (
           <div className="page-content history-page">
             <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" />YOUR CONVERSATIONS</div><h1>Call history</h1><p>Review outcomes, learn from conversations, and pick up the next step.</p></div><button className="button button-primary" onClick={startNewCall}><Plus size={16} />Start a call</button></div>
-            <div className="history-metrics"><div className="metric-card"><span>Total calls</span><b>{history.length + 24}</b><small><TrendingUp size={13} />12% vs. last week</small></div><div className="metric-card"><span>Meetings booked</span><b>{history.filter((x) => x.outcome === "Meeting booked").length + 8}</b><small><Target size={13} />Positive outcomes</small></div><div className="metric-card"><span>Avg. call duration</span><b>04:38</b><small><Clock3 size={13} />Across completed calls</small></div><div className="metric-card"><span>Avg. stage reached</span><b>{(history.reduce((n,x) => n + x.stage,0) / Math.max(1,history.length)).toFixed(1)}<small>/8</small></b><small><BarChart3 size={13} />Conversation depth</small></div></div>
+            <div className="history-metrics"><div className="metric-card"><span>Total calls</span><b>{history.length}</b><small><TrendingUp size={13} />Saved calls</small></div><div className="metric-card"><span>Meetings booked</span><b>{history.filter((x) => x.outcome === "Meeting booked").length}</b><small><Target size={13} />Meetings booked</small></div><div className="metric-card"><span>Avg. call duration</span><b>—</b><small><Clock3 size={13} />Duration not captured yet</small></div><div className="metric-card"><span>Avg. stage reached</span><b>{(history.reduce((n,x) => n + x.stage,0) / Math.max(1,history.length)).toFixed(1)}<small>/8</small></b><small><BarChart3 size={13} />Conversation depth</small></div></div>
             <section className="panel history-table-panel"><div className="history-toolbar"><div><h2>Recent calls</h2><p>Latest activity across your workspace</p></div><div className="history-filters"><label className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search prospect or company" /></label><button className="button button-secondary" onClick={() => notify("Showing all call outcomes")}><Settings2 size={15} />Filters</button></div></div>
               <div className="table-wrap"><table><thead><tr><th>PROSPECT</th><th>DATE</th><th>FURTHEST STAGE</th><th>DURATION</th><th>OUTCOME</th><th /></tr></thead><tbody>{filteredHistory.map((call) => <tr key={call.id}><td><div className="table-person"><div className="table-avatar">{call.prospect.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div><b>{call.prospect}</b><small>{call.company}</small></div></div></td><td>{call.date}</td><td><div className="stage-cell"><div className="mini-progress"><span style={{ width: `${call.stage / 8 * 100}%` }} /></div><span>{call.stage}/8</span></div></td><td>{call.duration}</td><td><span className={`outcome-pill ${call.outcome === "Meeting booked" ? "positive" : call.outcome === "Not a fit" ? "neutral" : "followup"}`}><i />{call.outcome}</span></td><td><button className="icon-button small" aria-label={`View ${call.prospect}`} onClick={() => notify(`${call.prospect}: reached stage ${call.stage} of 8`)}><ArrowRight size={15} /></button></td></tr>)}</tbody></table>{filteredHistory.length === 0 && <div className="no-results">No calls match that search.</div>}</div>
               <div className="table-footer"><span>Showing {filteredHistory.length} recent calls</span><span>Furthest stage reached is saved per call</span></div>
