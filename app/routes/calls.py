@@ -99,11 +99,14 @@ async def _supabase_request(method: str, path: str, token: str, payload: dict[st
 
 
 def _local_rows() -> list[dict[str, Any]]:
-    with _connect() as connection:
+    connection = _connect()
+    try:
         rows = connection.execute(
             "SELECT id, prospect, company, outcome, stage, duration, transcript, created_at "
             "FROM calls ORDER BY created_at DESC LIMIT 100"
         ).fetchall()
+    finally:
+        connection.close()
     return [
         {**dict(row), "transcript": json.loads(row["transcript"])}
         for row in rows
@@ -132,7 +135,8 @@ async def create_call(payload: CallCreate, authorization: str | None = Header(de
     call_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
     record = payload.model_dump()
-    with _connect() as connection:
+    connection = _connect()
+    try:
         connection.execute(
             "INSERT INTO calls (id, prospect, company, outcome, stage, duration, transcript, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -143,4 +147,6 @@ async def create_call(payload: CallCreate, authorization: str | None = Header(de
             ),
         )
         connection.commit()
+    finally:
+        connection.close()
     return {**record, "id": call_id, "created_at": created_at}
