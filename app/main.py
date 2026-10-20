@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.transcription import router as transcription_router
+from app.routes.coaching import router as coaching_router
 
 app = FastAPI(title="Dialog AI API", version="0.1.0")
 
@@ -27,3 +28,4 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "service": "dialog-ai-api"}
 
 app.include_router(transcription_router, prefix="/api/transcription")
+app.include_router(coaching_router, prefix="/api/coaching")
