@@ -29,4 +29,4 @@ Copy `.env.example` to `.env.local` and set `VITE_API_BASE_URL` to the FastAPI s
 - Call history with search, outcome, duration, and furthest stage reached.
 - Responsive layout, accessible labels, keyboard-friendly controls, and reduced-motion support.
 
-The current UI uses demo data. Microphone permission is checked, but actual speech-to-text streaming and persistent API calls require a configured backend provider. No API keys belong in Vite environment variables.
+The workspace starts with empty call history instead of fabricated sample calls. Calls are saved through FastAPI to local SQLite by default; configure Supabase Auth and RLS for cloud history. Live transcription requires a server-side Deepgram key. Groq coaching is requested on demand and falls back to deterministic guidance if the provider is unavailable. Never put Deepgram or Groq keys in Vite environment variables.

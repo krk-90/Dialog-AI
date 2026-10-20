@@ -13,7 +13,7 @@ Dialog AI is a React + TypeScript frontend backed by FastAPI. Deepgram handles s
 - Manual transcript entry when streaming is unavailable.
 - On-demand Groq coaching using the current stage and a bounded recent transcript context.
 - Deterministic coaching fallback when Groq is not configured or unavailable.
-- Local browser call-history persistence across refreshes.
+- Persistent backend call history in local SQLite by default, with optional Supabase cloud history.
 - Light/dark theme, FastAPI health endpoint, backend tests, frontend production build, and deployment smoke evaluation.
 
 ## Architecture
@@ -23,7 +23,7 @@ React + Vite + TypeScript
   ├── Live call workspace and stage guide
   ├── useDeepgramTranscription hook
   ├── Browser audio capture + WebSocket
-  └── Local call-history storage
+  └── Call history loaded and saved through the API
           │ HTTP
           ▼
 FastAPI
@@ -81,7 +81,9 @@ Backend `.env`:
 | `GROQ_API_KEY` | No | Server-side key for AI coaching; built-in fallback works without it |
 | `GROQ_MODEL` | No | Groq model name; defaults to `llama-3.3-70b-versatile` |
 | `FRONTEND_ORIGINS` | For deployment | Comma-separated allowed frontend origins |
-| `SUPABASE_URL` | Optional | Supabase project URL for cloud call history |
+| `DIALOG_AI_LOCAL_HISTORY` | No | Set `true` for unauthenticated local SQLite history; set `false` on public deployments |
+| `DIALOG_AI_DB_PATH` | No | Local SQLite file path; defaults to `data/dialog-ai.sqlite3` |
+| `SUPABASE_URL` | Optional | Supabase project URL for cloud call history; configure with the anon key to enable cloud mode |
 | `SUPABASE_ANON_KEY` | Optional | Supabase public anon key used server-side with the signed-in user JWT; never use a service-role key |
 
 Frontend `app/frontend/.env`:
@@ -102,7 +104,7 @@ Frontend `app/frontend/.env`:
 4. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the frontend environment and rebuild/redeploy it.
 5. Enable the desired email sign-up / confirmation settings in Supabase Auth.
 
-When Supabase is configured, the UI requires sign-in, loads the signed-in user's call history, and saves completed calls through the backend. Supabase RLS scopes rows to `auth.uid()`; the backend never accepts a client-supplied `user_id`. Without Supabase configuration, the app remains usable in local-history mode.
+When Supabase is configured, the UI requires sign-in, loads the signed-in user's call history, and saves completed calls through the backend. Supabase RLS scopes rows to `auth.uid()`; the backend never accepts a client-supplied `user_id`. Without Supabase configuration, the backend stores call history in `data/dialog-ai.sqlite3`. This persists across local restarts. Render's default filesystem is ephemeral, so configure Supabase for durable deployed history. Unauthenticated SQLite history is disabled by the Render blueprint.
 
 ## Tests and evaluation
 
@@ -133,7 +135,7 @@ The smoke report records pass rate and endpoint latency for health, coaching, an
 - Desktop/tab capture requires browser permission and the user to select a share target with audio enabled. The app does not silently capture arbitrary system audio.
 - Speaker labels are provisional diarization labels such as Voice 1 / Voice 2. They do not reliably identify which speaker is the salesperson.
 - AI coaching is requested when the user clicks **Refresh coaching**; transcript text is not automatically streamed to Groq.
-- Without Supabase configuration, call history is stored in the browser only and is not synced between devices.
+- Without Supabase configuration, call history is stored in a local SQLite file and is not synced between devices. Use Supabase for shared cloud history.
 - Cloud history depends on applying the SQL schema, enabling Supabase Auth, and setting the matching environment variables.
 - Add authentication, authorization, rate limiting, consent UX, retention controls, and privacy review before exposing this app to public or production call data.
 - A successful build or smoke test does not verify provider credentials or a live deployed call. Test those in the configured environment.

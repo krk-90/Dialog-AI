@@ -1,7 +1,12 @@
-"""Authenticated call-history API backed by Supabase REST and row-level security."""
+"""Call history with local SQLite persistence and optional Supabase cloud storage."""
 from __future__ import annotations
 
+import json
 import os
+import sqlite3
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -20,15 +25,50 @@ class CallCreate(BaseModel):
     transcript: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
 
 
+def _supabase_configured() -> bool:
+    return bool(os.getenv("SUPABASE_URL", "").strip() and os.getenv("SUPABASE_ANON_KEY", "").strip())
+
+
+def _local_history_enabled() -> bool:
+    return os.getenv("DIALOG_AI_LOCAL_HISTORY", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _configuration() -> tuple[str, str]:
     base_url = os.getenv("SUPABASE_URL", "").rstrip("/")
     anon_key = os.getenv("SUPABASE_ANON_KEY", "")
     if not base_url or not anon_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Cloud call history is not configured. Local browser history remains available.",
+            detail="Cloud history is not configured. Local SQLite history is active.",
         )
     return base_url, anon_key
+
+
+def _database_path() -> Path:
+    return Path(os.getenv("DIALOG_AI_DB_PATH", "data/dialog-ai.sqlite3"))
+
+
+def _connect() -> sqlite3.Connection:
+    path = _database_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path, timeout=10)
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS calls (
+            id TEXT PRIMARY KEY,
+            prospect TEXT NOT NULL DEFAULT '',
+            company TEXT NOT NULL DEFAULT '',
+            outcome TEXT NOT NULL DEFAULT 'Follow-up',
+            stage INTEGER NOT NULL CHECK(stage BETWEEN 1 AND 8),
+            duration TEXT NOT NULL DEFAULT '',
+            transcript TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.commit()
+    return connection
 
 
 def _bearer(authorization: str | None) -> str:
@@ -62,18 +102,60 @@ async def _supabase_request(method: str, path: str, token: str, payload: dict[st
         raise HTTPException(status_code=502, detail="Cloud call history is temporarily unavailable.") from exc
 
 
+def _local_rows() -> list[dict[str, Any]]:
+    connection = _connect()
+    try:
+        rows = connection.execute(
+            "SELECT id, prospect, company, outcome, stage, duration, transcript, created_at "
+            "FROM calls ORDER BY created_at DESC LIMIT 100"
+        ).fetchall()
+    finally:
+        connection.close()
+    return [
+        {**dict(row), "transcript": json.loads(row["transcript"])}
+        for row in rows
+    ]
+
+
 @router.get("")
 async def list_calls(authorization: str | None = Header(default=None)) -> Any:
-    token = _bearer(authorization)
-    return await _supabase_request(
-        "GET",
-        "calls?select=id,prospect,company,outcome,stage,duration,transcript,created_at&order=created_at.desc&limit=100",
-        token,
-    )
+    if _supabase_configured():
+        token = _bearer(authorization)
+        return await _supabase_request(
+            "GET",
+            "calls?select=id,prospect,company,outcome,stage,duration,transcript,created_at&order=created_at.desc&limit=100",
+            token,
+        )
+    if not _local_history_enabled():
+        raise HTTPException(status_code=503, detail="Call history is disabled until Supabase cloud history is configured.")
+    return _local_rows()
 
 
 @router.post("", status_code=201)
 async def create_call(payload: CallCreate, authorization: str | None = Header(default=None)) -> Any:
-    token = _bearer(authorization)
-    # The database assigns user_id from auth.uid(); never accept a client-supplied owner.
-    return await _supabase_request("POST", "calls", token, payload.model_dump())
+    if _supabase_configured():
+        token = _bearer(authorization)
+        result = await _supabase_request("POST", "calls", token, payload.model_dump())
+        return result
+
+    if not _local_history_enabled():
+        raise HTTPException(status_code=503, detail="Call history is disabled until Supabase cloud history is configured.")
+
+    call_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+    record = payload.model_dump()
+    connection = _connect()
+    try:
+        connection.execute(
+            "INSERT INTO calls (id, prospect, company, outcome, stage, duration, transcript, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                call_id, record["prospect"], record["company"], record["outcome"],
+                record["stage"], record["duration"], json.dumps(record["transcript"]),
+                created_at,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return {**record, "id": call_id, "created_at": created_at}
