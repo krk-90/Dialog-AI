@@ -58,7 +58,11 @@ export function useDeepgramTranscription({ tokenEndpoint = `${API_BASE_URL}/api/
         socket.onerror = () => { window.clearTimeout(timeout); reject(new Error("Could not connect to the speech service. Check your connection or use manual mode.")); };
         socket.onclose = (event) => {
           window.clearTimeout(timeout);
-          if (activeRef.current && event.code !== 1000) setError("Speech connection closed. Manual transcript entry is still available.");
+          if (socket.readyState !== WebSocket.OPEN && !activeRef.current) {
+            reject(new Error("Speech connection closed before transcription started. Manual entry remains available."));
+          } else if (activeRef.current && event.code !== 1000) {
+            setError("Speech connection closed. Manual transcript entry is still available.");
+          }
         };
       });
       if (!stream.active || socket.readyState !== WebSocket.OPEN) throw new Error("Audio session ended before transcription could start.");
