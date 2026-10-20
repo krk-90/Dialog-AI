@@ -1,3 +1,4 @@
+import httpx
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -95,7 +96,7 @@ def test_coaching_falls_back_if_groq_fails(monkeypatch):
             return False
 
         async def post(self, *args, **kwargs):
-            raise __import__("httpx").ConnectError("provider unavailable")
+            raise httpx.ConnectError("provider unavailable")
 
     monkeypatch.setattr("app.routes.coaching.httpx.AsyncClient", lambda **kwargs: BrokenClient())
     response = client.post(
