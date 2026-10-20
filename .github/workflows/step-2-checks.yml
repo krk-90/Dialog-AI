@@ -2,7 +2,7 @@ name: Step 2 checks
 
 on:
   push:
-    branches: [feat/step-2-streaming-audio, feat/step-3-live-coaching]
+    branches: [feat/step-2-streaming-audio, feat/step-3-live-coaching, feat/end-to-end-completion]
   pull_request:
     branches: [main, feat/step-2-streaming-audio]
 
