@@ -110,3 +110,20 @@ def test_coaching_falls_back_if_groq_fails(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["source"] == "fallback"
+
+
+def test_fallback_coaching_uses_response_context(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    response = client.post(
+        "/api/coaching/suggestion",
+        json={
+            "stage": "Discovery",
+            "purpose": "Understand current process",
+            "response_type": "Not interested",
+            "transcript": ["Prospect: We are not interested right now."],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "fallback"
+    assert "do not push" in body["suggestion"]
