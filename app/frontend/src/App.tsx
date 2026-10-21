@@ -356,8 +356,13 @@ function App() {
         setAuthNotice("Check your email to confirm your account, then sign in.");
         return;
       }
-      window.localStorage.setItem("dialog-ai-session", JSON.stringify(body));
+      // Keep the signed-in session usable even if browser storage is blocked.
       setAuthSession(body as AuthSession);
+      try {
+        window.localStorage.setItem("dialog-ai-session", JSON.stringify(body));
+      } catch {
+        setAuthNotice("Signed in for this tab. Browser storage is unavailable, so you may need to sign in again after refresh.");
+      }
       setAuthPassword("");
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Authentication failed.");
