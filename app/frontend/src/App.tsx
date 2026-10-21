@@ -249,6 +249,7 @@ function App() {
           response_type: responseType,
           notes,
           transcript: transcript.slice(-8).map((line) => line.speaker + ": " + line.text),
+          previous_suggestion: suggestion,
         }),
       });
       if (!response.ok) throw new Error("Coaching service is unavailable");
