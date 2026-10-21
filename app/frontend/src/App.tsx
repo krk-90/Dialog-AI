@@ -295,7 +295,8 @@ function App() {
     if (interimTranscript && !linesToSave.some((line) => line.id === interimTranscript.id)) {
       linesToSave.push(interimTranscript);
     }
-    const transcriptLines = linesToSave.map(({ id, ...line }) => line);
+    // The API validates at most 500 transcript entries per call record.
+    const transcriptLines = linesToSave.slice(-500).map(({ id, ...line }) => line);
     const savedProspect = prospect.trim() || "Unknown prospect";
     const localCall: CallRecord = {
       id: demoMode ? `demo-${crypto.randomUUID()}` : `local-${crypto.randomUUID()}`,
