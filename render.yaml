@@ -1,12 +1,15 @@
 services:
+  # FastAPI backend. Render builds this service from the repository Dockerfile.
   - type: web
     name: dialog-ai-api
-    runtime: python
+    runtime: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.15"
       - key: DEEPGRAM_API_KEY
         sync: false
       - key: GROQ_API_KEY
@@ -17,7 +20,22 @@ services:
         sync: false
       - key: DIALOG_AI_LOCAL_HISTORY
         value: "false"
+      - key: DIALOG_AI_DB_PATH
+        value: /tmp/dialog-ai.sqlite3
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
+        sync: false
+
+  # Static React/Vite frontend. Configure VITE_API_BASE_URL to the backend URL
+  # shown by Render (https://dialog-ai-api.onrender.com) before the first build.
+  - type: web
+    name: dialog-ai-web
+    runtime: static
+    plan: free
+    rootDir: app/frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_BASE_URL
         sync: false
