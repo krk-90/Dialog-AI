@@ -32,7 +32,7 @@ class CoachingResponse(BaseModel):
 
 def fallback_suggestion(stage: str, response_type: str, transcript: list[str], notes: str) -> str:
     latest = next((line.split(":", 1)[-1].strip() for line in reversed(transcript) if line.strip()), "")
-    context = (notes.strip() or latest).strip().strip('"\\'')[:180]
+    context = (notes.strip() or latest).strip().strip('"').strip("'")[:180]
     if context and response_type == "Interested":
         return f'Build on their interest in "{context}": ask which outcome matters most, then suggest one relevant next step.'
     if context and response_type == "Shared a pain point":
