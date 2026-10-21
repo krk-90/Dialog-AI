@@ -2,6 +2,8 @@
 
 **A desktop-first cold-call copilot** with live transcription, structured call stages, and on-demand AI coaching.
 
+**Links:** [Live App](https://dialog-ai-ten.vercel.app/) · [Developer Portfolio](https://krk-90.github.io/kaushik-portfolio/) · [GitHub Repository](https://github.com/krk-90/Dialog-AI) · [API Health](https://dialog-ai-716r.onrender.com/health)
+
 Dialog AI is a React + TypeScript frontend backed by FastAPI. Deepgram handles streaming speech-to-text, and Groq can generate concise coaching suggestions. The app keeps a manual transcript path available when live audio or provider credentials are unavailable.
 
 ## Current capabilities
@@ -187,8 +189,9 @@ Never put Groq or Deepgram credentials in frontend variables or commit them to G
 Replace these placeholders after successful deployments:
 
 - GitHub repository: https://github.com/krk-90/Dialog-AI
-- Vercel frontend: `https://YOUR-APP.vercel.app`
-- Render health endpoint: `https://YOUR-RENDER-SERVICE.onrender.com/health`
+- Vercel frontend: https://dialog-ai-ten.vercel.app/
+- Developer portfolio: https://krk-90.github.io/kaushik-portfolio/
+- Render health endpoint: https://dialog-ai-716r.onrender.com/health
 - Supabase SQL schema: [`supabase/schema.sql`](supabase/schema.sql)
 
 Only report the frontend and health endpoint as live after testing both.
