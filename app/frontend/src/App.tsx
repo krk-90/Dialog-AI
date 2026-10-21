@@ -95,6 +95,7 @@ function App() {
   const [interimTranscript, setInterimTranscript] = useState<TranscriptLine | null>(null);
   const [draft, setDraft] = useState("");
   const [coachLoading, setCoachLoading] = useState(false);
+  const [coachSource, setCoachSource] = useState<"groq" | "fallback" | "unavailable" | null>(null);
   const [suggestion, setSuggestion] = useState("They've offered a one-minute window. Give a concise reason for calling, then ask one focused question.");
   const [history, setHistory] = useState<CallRecord[]>(() => {
     if (!demoMode) return [];
@@ -257,9 +258,11 @@ function App() {
       if (!response.ok) throw new Error("Coaching service is unavailable");
       const data: { suggestion: string; source: "groq" | "fallback" } = await response.json();
       setSuggestion(data.suggestion);
-      notify(data.source === "groq" ? "Coaching refreshed" : "Using built-in coaching guidance");
+      setCoachSource(data.source);
+      notify(data.source === "groq" ? "Groq AI coaching refreshed" : "Using built-in coaching guidance");
     } catch {
       setSuggestion(stage.tip);
+      setCoachSource("unavailable");
       notify("AI coaching unavailable. Showing built-in guidance instead.");
     } finally {
       setCoachLoading(false);
@@ -322,7 +325,10 @@ function App() {
             transcript: transcriptLines,
           }),
         });
-        if (!response.ok) throw new Error("Backend save failed");
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => ({}));
+          throw new Error(typeof errorBody.detail === "string" ? errorBody.detail : `Backend save failed (${response.status})`);
+        }
         const saved = await response.json() as { id?: string; created_at?: string };
         setHistory((items) => [{
           ...localCall,
@@ -330,10 +336,12 @@ function App() {
           date: saved.created_at ? new Date(saved.created_at).toLocaleString() : localCall.date,
         }, ...items]);
         notify(AUTH_CONFIGURED ? "Call saved to your cloud history" : "Call saved to backend history");
-      } catch {
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Unknown save error";
+        setHistoryError(detail);
         notify(AUTH_CONFIGURED
-          ? "Cloud save failed. This call was not saved. Check your connection and try again."
-          : "Backend save failed. This call was not saved to history.");
+          ? `Cloud save failed: ${detail}`
+          : `Call was not saved: ${detail}`);
       }
     }
     callStartedAtRef.current = null;
@@ -481,10 +489,11 @@ function App() {
               <div className="right-column">
                 <section className="panel guidance-panel">
                   <div className="panel-heading"><div className="heading-icon amber"><BookOpen size={17} /></div><div><h2>Stage guidance</h2><p>Keep the next move intentional</p></div><button className="icon-button small" aria-label="Guidance settings" onClick={() => notify("Guidance is currently using local demo content")}><Settings2 size={16} /></button></div>
+                  <button className="button button-primary coaching-top-action" onClick={() => void requestCoaching()} disabled={coachLoading}><Sparkles size={15} />{coachLoading ? "Generating coaching…" : "Refresh AI coaching"}</button>
                   <div className="stage-context"><span className="context-label">STAGE {String(stageIndex + 1).padStart(2,"0")} <span>/ 08</span></span><h3>{stage.name}</h3><p>{stage.purpose}</p></div>
                   <div className="guidance-section"><div className="section-label"><span className="section-dot violet" />SUGGESTED LANGUAGE</div><blockquote>{stage.prompt}</blockquote><button className="copy-link" onClick={() => { void navigator.clipboard?.writeText(stage.prompt); notify("Suggested language copied"); }}>Copy suggestion <Command size={13} /></button></div>
                   <div className="tip-box"><div className="tip-icon"><Zap size={15} /></div><div><b>Coach's note</b><p>{stage.tip}</p></div></div>
-                  <div className="ai-insight"><div className="ai-insight-head"><div><Sparkles size={15} /><b>Conversation insight</b></div><span>{coachLoading ? "WORKING" : "LIVE"}</span></div><p>{suggestion}</p><div className="insight-foot"><span><Activity size={13} />Stage + recent context</span><button className="copy-link" onClick={() => void requestCoaching()} disabled={coachLoading}>{coachLoading ? "Thinking…" : "Refresh coaching"} <Sparkles size={13} /></button></div></div>
+                  <div className="ai-insight"><div className="ai-insight-head"><div><Sparkles size={15} /><b>Conversation insight</b></div><span>{coachLoading ? "WORKING" : coachSource === "groq" ? "GROQ AI" : coachSource === "fallback" ? "BUILT-IN" : coachSource === "unavailable" ? "OFFLINE" : "READY"}</span></div><p>{suggestion}</p><div className="insight-foot"><span><Activity size={13} />Stage + recent context</span><button className="copy-link" onClick={() => void requestCoaching()} disabled={coachLoading}>{coachLoading ? "Thinking…" : "Refresh coaching"} <Sparkles size={13} /></button></div></div>
                   <div className="stage-actions"><button className="button button-secondary" onClick={() => setStageIndex(Math.max(0, stageIndex - 1))} disabled={stageIndex === 0}><ArrowLeft size={15} />Previous</button><button className="button button-primary" onClick={saveStage}>{stageIndex === 7 ? "Save stage" : "Save & continue"}<ArrowRight size={15} /></button></div>
                 </section>
 
