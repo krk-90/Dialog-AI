@@ -96,7 +96,7 @@ function App() {
   const [draft, setDraft] = useState("");
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachSource, setCoachSource] = useState<"groq" | "fallback" | "unavailable" | null>(null);
-  const [suggestion, setSuggestion] = useState("They've offered a one-minute window. Give a concise reason for calling, then ask one focused question.");
+  const [suggestion, setSuggestion] = useState("");
   const [history, setHistory] = useState<CallRecord[]>(() => {
     if (!demoMode) return [];
     try {
@@ -131,6 +131,10 @@ function App() {
   } });
   const stage = stages[stageIndex];
   const progress = Math.round(((stageIndex + 1) / stages.length) * 100);
+  const suggestedLanguage = useMemo(() => {
+    const match = suggestion.match(/NEXT LINE:\s*([^\n]+)/i);
+    return match?.[1]?.trim() || (coachSource === "groq" ? suggestion : stage.prompt);
+  }, [suggestion, coachSource, stage.prompt]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -488,9 +492,9 @@ function App() {
                   <div className="panel-heading"><div className="heading-icon amber"><BookOpen size={17} /></div><div><h2>Stage guidance</h2><p>Keep the next move intentional</p></div><button className="icon-button small" aria-label="Guidance settings" onClick={() => notify("Guidance is currently using local demo content")}><Settings2 size={16} /></button></div>
                   <button className="button button-primary coaching-top-action" onClick={() => void requestCoaching()} disabled={coachLoading}><Sparkles size={15} />{coachLoading ? "Generating coaching…" : "Refresh AI coaching"}</button>
                   <div className="stage-context"><span className="context-label">STAGE {String(stageIndex + 1).padStart(2,"0")} <span>/ 08</span></span><h3>{stage.name}</h3><p>{stage.purpose}</p></div>
-                  <div className="guidance-section"><div className="section-label"><span className="section-dot violet" />SUGGESTED LANGUAGE</div><blockquote>{stage.prompt}</blockquote><button className="copy-link" onClick={() => { void navigator.clipboard?.writeText(stage.prompt); notify("Suggested language copied"); }}>Copy suggestion <Command size={13} /></button></div>
+                  <div className="guidance-section"><div className="section-label"><span className="section-dot violet" />SUGGESTED LANGUAGE</div><blockquote>{suggestedLanguage}</blockquote><button className="copy-link" onClick={() => { void navigator.clipboard?.writeText(suggestedLanguage); notify("Suggested language copied"); }}>Copy suggestion <Command size={13} /></button></div>
                   <div className="tip-box"><div className="tip-icon"><Zap size={15} /></div><div><b>Coach's note</b><p>{stage.tip}</p></div></div>
-                  <div className="ai-insight"><div className="ai-insight-head"><div><Sparkles size={15} /><b>Conversation insight</b></div><span>{coachLoading ? "WORKING" : coachSource === "groq" ? "GROQ AI" : coachSource === "fallback" ? "BUILT-IN" : coachSource === "unavailable" ? "OFFLINE" : "READY"}</span></div><p>{suggestion}</p><div className="insight-foot"><span><Activity size={13} />Stage + recent context</span><button className="copy-link" onClick={() => void requestCoaching()} disabled={coachLoading}>{coachLoading ? "Thinking…" : "Refresh coaching"} <Sparkles size={13} /></button></div></div>
+                  <div className="ai-insight"><div className="ai-insight-head"><div><Sparkles size={15} /><b>Conversation insight</b></div><span>{coachLoading ? "GENERATING" : coachSource === "groq" ? "GROQ AI" : coachSource === "fallback" ? "BUILT-IN FALLBACK" : coachSource === "unavailable" ? "OFFLINE FALLBACK" : "NOT GENERATED"}</span></div><p>{suggestion || "Refresh coaching to analyze the current stage, prospect response, and recent transcript. Until then, the suggested language above is the stage guide baseline."}</p><div className="insight-foot"><span><Activity size={13} />Stage + recent context</span><button className="copy-link" onClick={() => void requestCoaching()} disabled={coachLoading}>{coachLoading ? "Thinking…" : "Refresh coaching"} <Sparkles size={13} /></button></div></div>
                   <div className="stage-actions"><button className="button button-secondary" onClick={() => setStageIndex(Math.max(0, stageIndex - 1))} disabled={stageIndex === 0}><ArrowLeft size={15} />Previous</button><button className="button button-primary" onClick={saveStage}>{stageIndex === 7 ? "Save stage" : "Save & continue"}<ArrowRight size={15} /></button></div>
                 </section>
 
