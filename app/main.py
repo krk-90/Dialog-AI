@@ -15,7 +15,10 @@ app = FastAPI(title="Dialog AI API", version="0.1.0")
 import os
 origins = [
     origin.strip()
-    for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",")
+    for origin in os.getenv(
+        "FRONTEND_ORIGINS",
+        "http://localhost:5173,https://dialog-ai-ten.vercel.app",
+    ).split(",")
     if origin.strip()
 ]
 app.add_middleware(
@@ -26,10 +29,23 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 
+
+@app.get("/", tags=["health"])
+async def root() -> dict[str, str]:
+    """Human-friendly service root so opening the Render URL isn't a 404."""
+    return {
+        "service": "dialog-ai-api",
+        "status": "ok",
+        "health": "/health",
+        "docs": "/docs",
+    }
+
+
 @app.get("/health", tags=["health"])
 async def health() -> dict[str, str]:
     """Health endpoint intentionally does not require provider credentials."""
     return {"status": "ok", "service": "dialog-ai-api"}
+
 
 app.include_router(transcription_router, prefix="/api/transcription")
 app.include_router(calls_router, prefix="/api/calls")
