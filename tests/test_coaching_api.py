@@ -81,8 +81,8 @@ def test_coaching_uses_groq_when_configured(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {
         "suggestion": (
-            "NEXT LINE: Ask one focused discovery question.\\n"
-            "WHY: Keeps the response concise and grounded in the conversation.\\n"
+            "NEXT LINE: Ask one focused discovery question.\n"
+            "WHY: Keeps the response concise and grounded in the conversation.\n"
             "NEXT OBJECTIVE: Ask one relevant question and listen."
         ),
         "source": "groq",
