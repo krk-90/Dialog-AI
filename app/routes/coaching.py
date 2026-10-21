@@ -28,6 +28,7 @@ class CoachingRequest(BaseModel):
 class CoachingResponse(BaseModel):
     suggestion: str
     source: Literal["groq", "fallback"]
+    fallback_reason: Literal["missing_api_key", "provider_error"] | None = None
 
 
 def fallback_suggestion(stage: str, response_type: str, transcript: list[str], notes: str) -> str:
@@ -64,6 +65,7 @@ async def create_suggestion(payload: CoachingRequest) -> CoachingResponse:
         return CoachingResponse(
             suggestion=fallback_suggestion(payload.stage, payload.response_type, payload.transcript, payload.notes),
             source="fallback",
+            fallback_reason="missing_api_key",
         )
 
     transcript = "\n".join(f"- {line[:500]}" for line in payload.transcript[-8:])
@@ -107,4 +109,5 @@ async def create_suggestion(payload: CoachingRequest) -> CoachingResponse:
         return CoachingResponse(
             suggestion=fallback_suggestion(payload.stage, payload.response_type, payload.transcript, payload.notes),
             source="fallback",
+            fallback_reason="provider_error",
         )
