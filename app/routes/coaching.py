@@ -93,7 +93,7 @@ def fallback_suggestion(stage: str, response_type: str, transcript: list[str], n
     return "Keep it concise and relevant. Reflect the prospect's own words, ask one focused question, and avoid unsupported claims."
 
 
-@router.post("/suggestion", response_model=CoachingResponse)
+@router.post("/suggestion", response_model=CoachingResponse, response_model_exclude_none=True)
 async def create_suggestion(payload: CoachingRequest) -> CoachingResponse:
     if payload.stage not in ALLOWED_STAGES:
         raise HTTPException(status_code=422, detail="Unknown conversation stage.")
