@@ -27,20 +27,38 @@ export function useDeepgramTranscription({ tokenEndpoint = `${API_BASE_URL}/api/
 
   const stop = useCallback(() => {
     activeRef.current = false;
-    recorderRef.current?.stop();
+    const recorder = recorderRef.current;
+    const socket = socketRef.current;
     recorderRef.current = null;
+    socketRef.current = null;
+
+    // MediaRecorder emits its final dataavailable event before stop. Keep the
+    // WebSocket open until then, otherwise the last audio chunk can be dropped.
+    if (recorder && recorder.state !== "inactive") {
+      recorder.onstop = () => {
+        if (socket?.readyState === WebSocket.OPEN) {
+          try { socket.send(JSON.stringify({ type: "CloseStream" })); } catch { /* Socket may already be closing. */ }
+          window.setTimeout(() => {
+            if (socket.readyState < WebSocket.CLOSING) socket.close(1000, "User stopped transcription");
+          }, 250);
+        }
+      };
+      try {
+        recorder.stop();
+      } catch {
+        if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, "User stopped transcription");
+      }
+    } else if (socket && socket.readyState < WebSocket.CLOSING) {
+      try { socket.send(JSON.stringify({ type: "CloseStream" })); } catch { /* Socket may already be closing. */ }
+      socket.close(1000, "User stopped transcription");
+    }
+
     mediaRef.current?.getTracks().forEach((track) => track.stop());
     mediaRef.current = null;
     sourceStreamsRef.current.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
     sourceStreamsRef.current = [];
     void audioContextRef.current?.close().catch(() => undefined);
     audioContextRef.current = null;
-    const socket = socketRef.current;
-    socketRef.current = null;
-    if (socket && socket.readyState < WebSocket.CLOSING) {
-      try { socket.send(JSON.stringify({ type: "CloseStream" })); } catch { /* Socket may already be closing. */ }
-      socket.close(1000, "User stopped transcription");
-    }
     setStatus("idle");
   }, []);
 
