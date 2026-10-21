@@ -146,9 +146,52 @@ The smoke report records pass rate and endpoint latency for health, coaching, an
 - Add authentication, authorization, rate limiting, consent UX, retention controls, and privacy review before exposing this app to public or production call data.
 - A successful build or smoke test does not verify provider credentials or a live deployed call. Test those in the configured environment.
 
-## Deployment
+## Deployment: Vercel frontend + Render API
 
-The repository includes a Render blueprint for the FastAPI service. Configure `DEEPGRAM_API_KEY`, optional `GROQ_API_KEY`, and `FRONTEND_ORIGINS` in Render. For a separate frontend host, set `VITE_API_BASE_URL` to the backend origin and redeploy the frontend.
+The production deployment is split into two services:
+
+- **Frontend:** Vercel builds the React/Vite app from `app/frontend`.
+- **Backend:** Render builds the root `Dockerfile` and runs FastAPI.
+- **Speech-to-text:** Deepgram streaming transcription, called through the backend-issued temporary token.
+- **LLM coaching:** Groq, using `GROQ_MODEL` (default: `llama-3.3-70b-versatile`). Coaching is on-demand; deterministic fallback guidance remains available if Groq is not configured or fails.
+
+### Vercel frontend setup
+
+1. Import `https://github.com/krk-90/Dialog-AI` into [Vercel](https://vercel.com/new).
+2. Set **Root Directory** to `app/frontend`.
+3. Framework preset: **Vite**. Build command: `npm run build`. Output directory: `dist`. Install command: `npm ci`.
+4. Add `VITE_API_BASE_URL` with the Render backend origin, e.g. `https://YOUR-RENDER-SERVICE.onrender.com` (no `/api` suffix).
+5. If Supabase Auth/cloud history is enabled, also add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+6. Deploy, then copy the real Vercel URL. Do not publish placeholder URLs as if they were live.
+
+The `app/frontend/vercel.json` file configures SPA route fallback. Vite variables are embedded at build time, so redeploy after changing them.
+
+### Render backend setup
+
+1. Create a new **Web Service** from this repository, or use the included Blueprint.
+2. Runtime: **Docker**. Set **Docker Build Context Directory** to `.` and **Dockerfile Path** to `./Dockerfile`. These are different fields: the context is the repository root; the Dockerfile path is a file inside it.
+3. Health Check Path: `/health`.
+4. Add these backend environment variables in Render:
+   - `DEEPGRAM_API_KEY`: required for live transcription.
+   - `GROQ_API_KEY`: required for Groq-generated coaching; fallback guidance works without it.
+   - `GROQ_MODEL`: optional; defaults to `llama-3.3-70b-versatile`.
+   - `FRONTEND_ORIGINS`: exact Vercel origin, such as `https://YOUR-APP.vercel.app`, with no trailing slash.
+   - `DIALOG_AI_LOCAL_HISTORY=false` and `DIALOG_AI_DB_PATH=/tmp/dialog-ai.sqlite3` are set by the Blueprint.
+5. Deploy the backend and test `https://YOUR-RENDER-SERVICE.onrender.com/health`. Expected JSON includes `"status":"ok"`.
+6. Once the Vercel URL exists, set `FRONTEND_ORIGINS` to that exact origin in Render and redeploy the backend.
+
+Never put Groq or Deepgram credentials in frontend variables or commit them to GitHub. Do not use a Supabase service-role key in the frontend. For durable call history, apply `supabase/schema.sql`, enable Supabase Auth, and configure the backend Supabase URL/anon key plus the frontend Supabase URL/anon key. Render's local filesystem is ephemeral, so SQLite is not durable there.
+
+### Submission links
+
+Replace these placeholders after successful deployments:
+
+- GitHub repository: https://github.com/krk-90/Dialog-AI
+- Vercel frontend: `https://YOUR-APP.vercel.app`
+- Render health endpoint: `https://YOUR-RENDER-SERVICE.onrender.com/health`
+- Supabase SQL schema: [`supabase/schema.sql`](supabase/schema.sql)
+
+Only report the frontend and health endpoint as live after testing both.
 
 ## Privacy and consent
 
