@@ -242,8 +242,15 @@ function App() {
     await transcription.start();
   }
   async function requestCoaching() {
+    if (coachLoading) return;
     setCoachLoading(true);
     try {
+      // Include the live interim utterance too; otherwise the most recent words
+      // the prospect said can be missing when coaching is refreshed mid-sentence.
+      const contextLines = [
+        ...transcript,
+        ...(interimTranscript && !transcript.some((line) => line.id === interimTranscript.id) ? [interimTranscript] : []),
+      ].slice(-8);
       const response = await fetch(API_BASE_URL + "/api/coaching/suggestion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -252,19 +259,28 @@ function App() {
           purpose: stage.purpose,
           response_type: responseType,
           notes,
-          transcript: transcript.slice(-8).map((line) => line.speaker + ": " + line.text),
+          transcript: contextLines.map((line) => line.speaker + ": " + line.text),
           previous_suggestion: suggestion,
         }),
       });
-      if (!response.ok) throw new Error("Coaching service is unavailable");
-      const data: { suggestion: string; source: "groq" | "fallback" } = await response.json();
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(typeof body.detail === "string" ? body.detail : "Coaching service is unavailable");
+      }
+      const data: { suggestion: string; source: "groq" | "fallback"; fallback_reason?: "missing_api_key" | "provider_error" | null } = await response.json();
       setSuggestion(data.suggestion);
       setCoachSource(data.source);
-      notify(data.source === "groq" ? "Groq AI coaching refreshed" : "Using built-in coaching guidance");
-    } catch {
+      if (data.source === "groq") {
+        notify("Groq AI coaching refreshed");
+      } else if (data.fallback_reason === "missing_api_key") {
+        notify("AI key missing: set GROQ_API_KEY in the backend .env and restart the API");
+      } else {
+        notify("Groq did not respond successfully. Using built-in coaching; check backend logs and provider quota.");
+      }
+    } catch (error) {
       setSuggestion(stage.tip);
       setCoachSource("unavailable");
-      notify("AI coaching unavailable. Showing built-in guidance instead.");
+      notify(error instanceof Error ? error.message : "AI coaching unavailable. Showing built-in guidance instead.");
     } finally {
       setCoachLoading(false);
     }
