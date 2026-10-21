@@ -43,11 +43,28 @@ def test_local_call_is_persisted_with_transcript(monkeypatch, tmp_path):
     assert listed.json()[0]["transcript"] == payload["transcript"]
 
 
-def test_cloud_history_requires_sign_in_when_supabase_is_configured(monkeypatch):
+def test_missing_cloud_session_falls_back_to_local_history(monkeypatch, tmp_path):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_ANON_KEY", "public-test-key")
-    response = client.get("/api/calls")
-    assert response.status_code == 401
+    monkeypatch.setenv("DIALOG_AI_LOCAL_HISTORY", "true")
+    monkeypatch.setenv("DIALOG_AI_DB_PATH", str(tmp_path / "fallback.sqlite3"))
+    payload = {
+        "prospect": "Unauthenticated local call",
+        "company": "Local test",
+        "outcome": "Follow-up",
+        "stage": 2,
+        "duration": "00:12",
+        "transcript": [{"speaker": "Prospect", "text": "Please send details."}],
+    }
+
+    created = client.post("/api/calls", json=payload)
+    listed = client.get("/api/calls")
+
+    assert created.status_code == 201
+    assert created.json()["prospect"] == payload["prospect"]
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+    assert listed.json()[0]["transcript"] == payload["transcript"]
 
 
 def test_local_history_does_not_require_supabase_configuration(monkeypatch, tmp_path):
