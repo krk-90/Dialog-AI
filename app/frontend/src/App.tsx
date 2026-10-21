@@ -133,7 +133,7 @@ function App() {
   const progress = Math.round(((stageIndex + 1) / stages.length) * 100);
   const suggestedLanguage = useMemo(() => {
     const match = suggestion.match(/NEXT LINE:\s*([^\n]+)/i);
-    return match?.[1]?.trim() || (coachSource === "groq" ? suggestion : stage.prompt);
+    return match?.[1]?.trim() || (coachSource === "groq" || coachSource === "fallback" ? suggestion : stage.prompt);
   }, [suggestion, coachSource, stage.prompt]);
 
   useEffect(() => {
@@ -242,8 +242,15 @@ function App() {
     await transcription.start();
   }
   async function requestCoaching() {
+    if (coachLoading) return;
     setCoachLoading(true);
     try {
+      // Include the live interim utterance too; otherwise the most recent words
+      // the prospect said can be missing when coaching is refreshed mid-sentence.
+      const contextLines = [
+        ...transcript,
+        ...(interimTranscript && !transcript.some((line) => line.id === interimTranscript.id) ? [interimTranscript] : []),
+      ].slice(-8);
       const response = await fetch(API_BASE_URL + "/api/coaching/suggestion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -252,19 +259,28 @@ function App() {
           purpose: stage.purpose,
           response_type: responseType,
           notes,
-          transcript: transcript.slice(-8).map((line) => line.speaker + ": " + line.text),
+          transcript: contextLines.map((line) => line.speaker + ": " + line.text),
           previous_suggestion: suggestion,
         }),
       });
-      if (!response.ok) throw new Error("Coaching service is unavailable");
-      const data: { suggestion: string; source: "groq" | "fallback" } = await response.json();
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(typeof body.detail === "string" ? body.detail : "Coaching service is unavailable");
+      }
+      const data: { suggestion: string; source: "groq" | "fallback"; fallback_reason?: "missing_api_key" | "provider_error" | null } = await response.json();
       setSuggestion(data.suggestion);
       setCoachSource(data.source);
-      notify(data.source === "groq" ? "Groq AI coaching refreshed" : "Using built-in coaching guidance");
-    } catch {
+      if (data.source === "groq") {
+        notify("Groq AI coaching refreshed");
+      } else if (data.fallback_reason === "missing_api_key") {
+        notify("AI key missing: set GROQ_API_KEY in the backend .env and restart the API");
+      } else {
+        notify("Groq did not respond successfully. Using built-in coaching; check backend logs and provider quota.");
+      }
+    } catch (error) {
       setSuggestion(stage.tip);
       setCoachSource("unavailable");
-      notify("AI coaching unavailable. Showing built-in guidance instead.");
+      notify(error instanceof Error ? error.message : "AI coaching unavailable. Showing built-in guidance instead.");
     } finally {
       setCoachLoading(false);
     }
@@ -493,7 +509,7 @@ function App() {
                   <button className="button button-primary coaching-top-action" onClick={() => void requestCoaching()} disabled={coachLoading}><Sparkles size={15} />{coachLoading ? "Generating coaching…" : "Refresh AI coaching"}</button>
                   <div className="stage-context"><span className="context-label">STAGE {String(stageIndex + 1).padStart(2,"0")} <span>/ 08</span></span><h3>{stage.name}</h3><p>{stage.purpose}</p></div>
                   <div className="guidance-section"><div className="section-label"><span className="section-dot violet" />SUGGESTED LANGUAGE</div><blockquote>{suggestedLanguage}</blockquote><button className="copy-link" onClick={() => { void navigator.clipboard?.writeText(suggestedLanguage); notify("Suggested language copied"); }}>Copy suggestion <Command size={13} /></button></div>
-                  <div className="tip-box"><div className="tip-icon"><Zap size={15} /></div><div><b>Coach's note</b><p>{stage.tip}</p></div></div>
+                  <div className="tip-box"><div className="tip-icon"><Zap size={15} /></div><div><b>Coach's note</b><p>{suggestion.match(/WHY:\s*([^\n]+)/i)?.[1]?.trim() || stage.tip}</p></div></div>
                   <div className="ai-insight"><div className="ai-insight-head"><div><Sparkles size={15} /><b>Conversation insight</b></div><span>{coachLoading ? "GENERATING" : coachSource === "groq" ? "GROQ AI" : coachSource === "fallback" ? "BUILT-IN FALLBACK" : coachSource === "unavailable" ? "OFFLINE FALLBACK" : "NOT GENERATED"}</span></div><p>{suggestion || "Refresh coaching to analyze the current stage, prospect response, and recent transcript. Until then, the suggested language above is the stage guide baseline."}</p><div className="insight-foot"><span><Activity size={13} />Stage + recent context</span><button className="copy-link" onClick={() => void requestCoaching()} disabled={coachLoading}>{coachLoading ? "Thinking…" : "Refresh coaching"} <Sparkles size={13} /></button></div></div>
                   <div className="stage-actions"><button className="button button-secondary" onClick={() => setStageIndex(Math.max(0, stageIndex - 1))} disabled={stageIndex === 0}><ArrowLeft size={15} />Previous</button><button className="button button-primary" onClick={saveStage}>{stageIndex === 7 ? "Save stage" : "Save & continue"}<ArrowRight size={15} /></button></div>
                 </section>

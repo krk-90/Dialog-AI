@@ -28,6 +28,45 @@ class CoachingRequest(BaseModel):
 class CoachingResponse(BaseModel):
     suggestion: str
     source: Literal["groq", "fallback"]
+    fallback_reason: Literal["missing_api_key", "provider_error"] | None = None
+
+
+def normalize_model_suggestion(raw: str) -> str:
+    """Normalize model output into stable labels consumed by the frontend."""
+    text = raw.replace("\r\n", "\n").strip()
+    # Strip common Markdown wrappers without discarding the model's wording.
+    text = text.replace("```", "").strip()
+    labels = ("NEXT LINE", "WHY", "NEXT OBJECTIVE")
+    found: dict[str, str] = {}
+    current: str | None = None
+    for line in text.splitlines():
+        cleaned = line.strip().lstrip("-* ").strip()
+        match = __import__("re").match(
+            r"^\*{0,2}(NEXT LINE|WHY|NEXT OBJECTIVE)\*{0,2}\s*:\s*(.*)$",
+            cleaned,
+            flags=__import__("re").IGNORECASE,
+        )
+        if match:
+            current = match.group(1).upper()
+            found[current] = match.group(2).strip().strip("*").strip()
+        elif current and cleaned:
+            found[current] = (found[current] + " " + cleaned).strip()
+    if found.get("NEXT LINE"):
+        next_line = found["NEXT LINE"]
+        why = found.get("WHY") or "Responds to the prospect's latest statement without assuming facts."
+        objective = found.get("NEXT OBJECTIVE") or "Ask one focused question and listen."
+        return f"NEXT LINE: {next_line}\nWHY: {why}\nNEXT OBJECTIVE: {objective}"[:700]
+
+    # If the model ignores the format, don't leak a rambling paragraph into the
+    # primary script slot. Use its first sentence as the speakable line.
+    first = next((part.strip() for part in __import__("re").split(r"(?<=[.!?])\s+", text) if part.strip()), "")
+    if not first:
+        raise ValueError("Empty coaching response")
+    return (
+        f"NEXT LINE: {first}\n"
+        "WHY: Keeps the response concise and grounded in the conversation.\n"
+        "NEXT OBJECTIVE: Ask one relevant question and listen."
+    )[:700]
 
 
 def fallback_suggestion(stage: str, response_type: str, transcript: list[str], notes: str) -> str:
@@ -54,7 +93,7 @@ def fallback_suggestion(stage: str, response_type: str, transcript: list[str], n
     return "Keep it concise and relevant. Reflect the prospect's own words, ask one focused question, and avoid unsupported claims."
 
 
-@router.post("/suggestion", response_model=CoachingResponse)
+@router.post("/suggestion", response_model=CoachingResponse, response_model_exclude_none=True)
 async def create_suggestion(payload: CoachingRequest) -> CoachingResponse:
     if payload.stage not in ALLOWED_STAGES:
         raise HTTPException(status_code=422, detail="Unknown conversation stage.")
@@ -64,6 +103,7 @@ async def create_suggestion(payload: CoachingRequest) -> CoachingResponse:
         return CoachingResponse(
             suggestion=fallback_suggestion(payload.stage, payload.response_type, payload.transcript, payload.notes),
             source="fallback",
+            fallback_reason="missing_api_key",
         )
 
     transcript = "\n".join(f"- {line[:500]}" for line in payload.transcript[-8:])
@@ -98,13 +138,12 @@ async def create_suggestion(payload: CoachingRequest) -> CoachingResponse:
             )
             response.raise_for_status()
             body = response.json()
-            suggestion = body["choices"][0]["message"]["content"].strip()
-            if not suggestion:
-                raise ValueError("Empty coaching response")
-            return CoachingResponse(suggestion=suggestion[:700], source="groq")
+            suggestion = normalize_model_suggestion(body["choices"][0]["message"]["content"])
+            return CoachingResponse(suggestion=suggestion, source="groq")
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         # Provider errors and response bodies can contain sensitive implementation details.
         return CoachingResponse(
             suggestion=fallback_suggestion(payload.stage, payload.response_type, payload.transcript, payload.notes),
             source="fallback",
+            fallback_reason="provider_error",
         )
