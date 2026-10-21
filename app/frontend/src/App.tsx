@@ -153,12 +153,8 @@ function App() {
 
   useEffect(() => {
     if (demoMode) return;
-    if (AUTH_CONFIGURED && !authSession?.access_token) {
-      setHistory([]);
-      setHistoryError("");
-      setHistoryLoading(false);
-      return;
-    }
+    // The backend selects cloud history for signed-in sessions and local
+    // SQLite history when no session exists and local history is enabled.
     let cancelled = false;
     setHistory([]);
     setHistoryError("");
