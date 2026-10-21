@@ -232,6 +232,12 @@ function App() {
       notify("Transcription stopped. Manual entry remains available.");
       return;
     }
+    // Starting transcription from the initial workspace must also start a call
+    // session, otherwise End call stays disabled and duration is always zero.
+    if (!callActive) {
+      callStartedAtRef.current = Date.now();
+      setCallActive(true);
+    }
     await transcription.start();
   }
   async function requestCoaching() {
@@ -261,30 +267,39 @@ function App() {
   }
 
   function saveStage() {
-    const line = notes.trim() ? `Stage note: ${notes.trim()}` : `Response marked: ${responseType}`;
-    notify(`Stage ${stageIndex + 1} result saved in this demo session`);
+    const detail = notes.trim() ? notes.trim() : `Response marked: ${responseType}`;
+    const line = `[Stage ${stageIndex + 1} note] ${detail}`;
+    // Keep stage notes in the call transcript so they survive wrap-up and reload.
+    setTranscript((lines) => [...lines, {
+      id: Date.now(),
+      speaker: "You",
+      text: line,
+      time: new Date().toLocaleTimeString([], { minute: "2-digit", second: "2-digit" }),
+    }]);
+    notify(`Stage ${stageIndex + 1} note added to this call`);
     setSuggestion(stageIndex < 7
       ? `Next: ${stages[stageIndex + 1].purpose.toLowerCase()}. Use their exact wording to keep the conversation relevant.`
       : "Confirm the next action, timing, and owner before ending the call.");
     if (stageIndex < stages.length - 1) setStageIndex(stageIndex + 1);
     setNotes("");
-    void line;
   }
   async function finishCall() {
-    if (!prospect.trim()) {
-      notify("Add the prospect name before saving this call.");
-      setShowEnd(false);
-      return;
-    }
     transcription.stop();
     const elapsedSeconds = callStartedAtRef.current === null
       ? 0
       : Math.max(0, Math.floor((Date.now() - callStartedAtRef.current) / 1000));
     const duration = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
-    const transcriptLines = transcript.map(({ id, ...line }) => line);
+    // Preserve a final interim segment if the user ends the call before Deepgram
+    // emits its final result. Do not duplicate it if it already became final.
+    const linesToSave = [...transcript];
+    if (interimTranscript && !linesToSave.some((line) => line.id === interimTranscript.id)) {
+      linesToSave.push(interimTranscript);
+    }
+    const transcriptLines = linesToSave.map(({ id, ...line }) => line);
+    const savedProspect = prospect.trim() || "Unknown prospect";
     const localCall: CallRecord = {
       id: demoMode ? `demo-${crypto.randomUUID()}` : `local-${crypto.randomUUID()}`,
-      prospect: prospect.trim(), company: company.trim(), date: new Date().toLocaleString(),
+      prospect: savedProspect, company: company.trim(), date: new Date().toLocaleString(),
       outcome, stage: stageIndex + 1, duration, transcript: transcriptLines,
     };
 
