@@ -1,4 +1,4 @@
-# Version control
+# Git
 .git
 .gitignore
 
@@ -7,39 +7,29 @@
 .env.*
 !.env.example
 
-# Python artifacts
+# Python
 .venv
 __pycache__
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
 .pytest_cache
 *.egg-info
-dist
 build
+dist
 
-# Node / frontend build artifacts (rebuilt in Stage 1)
+# Node
 node_modules
 app/frontend/node_modules
 app/frontend/dist
 
-# Local data
+# Local state
 data
+*.sqlite3
+*.db
 
-# Tests
-tests
-
-# Editor / IDE
+# Editors / OS
 .vscode
 .idea
 *.swp
 *.swo
-
-# Documentation
-README.md
-*.md
-*.html
-
-# OS
 .DS_Store
 Thumbs.db
