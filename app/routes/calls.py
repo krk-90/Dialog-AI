@@ -119,7 +119,9 @@ def _local_rows() -> list[dict[str, Any]]:
 
 @router.get("")
 async def list_calls(authorization: str | None = Header(default=None)) -> Any:
-    if _supabase_configured():
+    # Prefer cloud history for authenticated users. When the frontend has no
+    # session yet, allow local development history instead of returning 401.
+    if _supabase_configured() and authorization and authorization.lower().startswith("bearer "):
         token = _bearer(authorization)
         return await _supabase_request(
             "GET",
@@ -127,18 +129,24 @@ async def list_calls(authorization: str | None = Header(default=None)) -> Any:
             token,
         )
     if not _local_history_enabled():
+        if _supabase_configured():
+            raise HTTPException(status_code=401, detail="Sign in to access cloud call history.")
         raise HTTPException(status_code=503, detail="Call history is disabled until Supabase cloud history is configured.")
     return _local_rows()
 
 
 @router.post("", status_code=201)
 async def create_call(payload: CallCreate, authorization: str | None = Header(default=None)) -> Any:
-    if _supabase_configured():
+    # Prefer cloud persistence when a bearer token is supplied. Missing auth
+    # falls back to local SQLite for development if enabled.
+    if _supabase_configured() and authorization and authorization.lower().startswith("bearer "):
         token = _bearer(authorization)
         result = await _supabase_request("POST", "calls", token, payload.model_dump())
         return result
 
     if not _local_history_enabled():
+        if _supabase_configured():
+            raise HTTPException(status_code=401, detail="Sign in to access cloud call history.")
         raise HTTPException(status_code=503, detail="Call history is disabled until Supabase cloud history is configured.")
 
     call_id = str(uuid.uuid4())
