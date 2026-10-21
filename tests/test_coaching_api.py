@@ -126,4 +126,4 @@ def test_fallback_coaching_uses_response_context(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["source"] == "fallback"
-    assert "do not push" in body["suggestion"]
+    assert "without pushing" in body["suggestion"]
